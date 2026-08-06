@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Neon Glow Sharp 'V' for VENOM -->
+    <path
+        android:fillColor="#06B6D4"
+        android:pathData="M24,34 L44,74 L54,74 L74,34 L66,34 L54,62 L42,34 Z" />
+    <path
+        android:fillColor="#8B5CF6"
+        android:pathData="M28,34 L46,70 L52,70 L70,34 L62,34 L54,54 L46,34 Z"
+        android:alpha="0.7"/>
+</vector>

@@ -1,0 +1,121 @@
+name: Build Native Android APK (VENOM)
+
+on:
+  push:
+    tags:
+      - 'v*'
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build-apk:
+    name: Build Release APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Java JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Inject Google Services Configuration
+        run: |
+          mkdir -p android/app
+          if [ -n "${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}" ]; then
+            echo "Decoding GOOGLE_SERVICES_JSON_BASE64 into android/app/google-services.json"
+            echo "${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}" | base64 --decode > android/app/google-services.json
+          elif [ -n "${{ secrets.GOOGLE_SERVICES_JSON }}" ]; then
+            echo "Writing GOOGLE_SERVICES_JSON into android/app/google-services.json"
+            echo '${{ secrets.GOOGLE_SERVICES_JSON }}' > android/app/google-services.json
+          elif [ -f "android/app/google-services.json" ]; then
+            echo "Found existing android/app/google-services.json"
+          elif [ -f "app/google-services.json" ]; then
+            echo "Copying app/google-services.json to android/app/google-services.json"
+            cp app/google-services.json android/app/google-services.json
+          else
+            echo "Creating default google-services.json for build..."
+            cat << 'EOF' > android/app/google-services.json
+          {
+            "project_info": {
+              "project_number": "169366370796",
+              "project_id": "reverberant-stock-34dh4",
+              "storage_bucket": "reverberant-stock-34dh4.firebasestorage.app"
+            },
+            "client": [
+              {
+                "client_info": {
+                  "mobilesdk_app_id": "1:169366370796:android:5a1db2cb340d683f56e8c9",
+                  "android_client_info": {
+                    "package_name": "com.novax.venom"
+                  }
+                },
+                "oauth_client": [
+                  {
+                    "client_id": "169366370796-3ao327ifkr54tfcekd2jnsepuedjftj2.apps.googleusercontent.com",
+                    "client_type": 1,
+                    "android_info": {
+                      "package_name": "com.novax.venom",
+                      "certificate_hash": "5d2e9046e8015b7ad88ed6c4217eb987dad869f6"
+                    }
+                  }
+                ],
+                "api_key": [
+                  {
+                    "current_key": "AIzaSyC9yKtKGCu33NHT9beQ8Mx8vQrw9Kq3ubc"
+                  }
+                ],
+                "services": {
+                  "appinvite_service": {
+                    "other_platform_oauth_client": []
+                  }
+                }
+              }
+            ],
+            "configuration_version": "1"
+          }
+          EOF
+          fi
+
+      - name: Setup and Fix Gradle Wrapper
+        run: |
+          cd android
+          if [ -f "gradlew" ]; then
+            if ! ./gradlew --version > /dev/null 2>&1; then
+              echo "Gradle wrapper is broken. Recreating..."
+              rm -rf gradle/wrapper/gradle-wrapper.jar gradle/wrapper/gradle-wrapper.properties gradlew gradlew.bat
+              gradle wrapper || ./gradlew wrapper
+            else
+              echo "Gradle wrapper is intact."
+            fi
+          else
+            echo "Gradle wrapper not found. Installing..."
+            gradle wrapper || ./gradlew wrapper
+          fi
+          chmod +x gradlew
+
+      - name: Generate Debug Keystore
+        run: |
+          if [ ! -f "android/app/debug.keystore" ]; then
+            echo "Generating debug keystore..."
+            keytool -genkey -v -keystore android/app/debug.keystore -alias androiddebugkey -storepass android -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+          fi
+
+      - name: Build Release APK with Gradle
+        run: |
+          cd android
+          ./gradlew assembleRelease --no-daemon
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: venom-release-apk
+          path: android/app/build/outputs/apk/release/*.apk
+
