@@ -7,3 +7,7 @@ coverage/
 .env*
 !.env.example
 firebase-applet-config.json
+.gradle/
+android/local.properties
+android/app/venom-release.jks
+debug.keystore
