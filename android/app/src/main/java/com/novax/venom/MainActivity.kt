@@ -16,6 +16,11 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
+import android.webkit.WebViewClient
+import android.widget.Button
+import android.widget.LinearLayout
+import android.widget.TextView
+import android.graphics.Typeface
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -46,6 +51,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private lateinit var webView: WebView
+    @Volatile private var pageLoaded = false
+    private var reloadedOnce = false
     private lateinit var updateManager: UpdateManager
     private lateinit var screenCaptureManager: ScreenCaptureManager
     private var triggeredByWake = false
@@ -105,6 +112,14 @@ class MainActivity : AppCompatActivity() {
 
         // Load the bundled assistant UI from local assets (offline-first, no server needed)
         webView.loadUrl("https://appassets.androidplatform.net/assets/www/index.html")
+
+        // BLACK-SCREEN WATCHDOG: agar 12s me page load na ho (JS error / asset 404)
+        // to native 'Retry' screen dikhao — black screen kabhi nahi.
+        webView.postDelayed({
+            if (!pageLoaded && !isFinishing) {
+                showNativeRetry("Page load timeout (JS/asset error).")
+            }
+        }, 12000)
 
         updateManager = UpdateManager(this, webView)
         updateManager.checkForUpdate()
@@ -181,7 +196,37 @@ class MainActivity : AppCompatActivity() {
                 request: WebResourceRequest
             ): WebResourceResponse? = assetLoader.shouldInterceptRequest(request.url)
 
+            override fun onReceivedError(
+                view: WebView?, request: WebResourceRequest?, error: android.webkit.WebResourceError?
+            ) {
+                super.onReceivedError(view, request, error)
+                // Main frame error (page hi load nahi hua) — retry once, phir native screen
+                if (request?.isForMainFrame == true && error != null) {
+                    if (!reloadedOnce) {
+                        reloadedOnce = true
+                        view?.postDelayed({ view?.reload() }, 800)
+                    } else {
+                        showNativeRetry("Load error: ${error.description}")
+                    }
+                }
+            }
+
+            override fun onReceivedHttpError(
+                view: WebView?, request: WebResourceRequest?, errorResponse: WebResourceResponse?
+            ) {
+                super.onReceivedHttpError(view, request, errorResponse)
+                if (request?.isForMainFrame == true) {
+                    if (!reloadedOnce) {
+                        reloadedOnce = true
+                        view?.postDelayed({ view?.reload() }, 800)
+                    } else {
+                        showNativeRetry("HTTP error (${errorResponse?.statusCode}).")
+                    }
+                }
+            }
+
             override fun onPageFinished(view: WebView?, url: String?) {
+                pageLoaded = true
                 super.onPageFinished(view, url)
                 // If the app was launched by the wake word / clap, tell the UI to
                 // start a listening session right away.
@@ -285,6 +330,54 @@ class MainActivity : AppCompatActivity() {
             }
         } catch (e: Exception) {
             Log.e("VenomMain", "onRequestPermissionsResult error", e)
+        }
+    }
+
+
+    /** BLACK-SCREEN FIX: native retry screen (programmatic — no XML needed). */
+    private fun showNativeRetry(reason: String) {
+        try {
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                val container = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    gravity = android.view.Gravity.CENTER
+                    setBackgroundColor(Color.parseColor("#02080b"))
+                }
+                val title = TextView(this).apply {
+                    text = "🕷️ VENOM"
+                    setTextColor(Color.parseColor("#7dd3fc"))
+                    textSize = 26f
+                    typeface = Typeface.DEFAULT_BOLD
+                    gravity = android.view.Gravity.CENTER
+                }
+                val msg = TextView(this).apply {
+                    text = "App load nahi ho paya.\n$reason"
+                    setTextColor(Color.parseColor("#94a3b8"))
+                    textSize = 14f
+                    gravity = android.view.Gravity.CENTER
+                    setPadding(0, 16, 0, 24)
+                }
+                val btn = Button(this).apply {
+                    text = "🔄 Retry"
+                    setTextColor(Color.WHITE)
+                    setBackgroundColor(Color.parseColor("#8b5cf6"))
+                }
+                btn.setOnClickListener {
+                    setContentView(webView)
+                    pageLoaded = false
+                    webView.reload()
+                }
+                container.addView(title, LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+                container.addView(msg, LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+                container.addView(btn, LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+                setContentView(container)
+            }
+        } catch (e: Exception) {
+            Log.e("MainActivity", "showNativeRetry error", e)
         }
     }
 }
