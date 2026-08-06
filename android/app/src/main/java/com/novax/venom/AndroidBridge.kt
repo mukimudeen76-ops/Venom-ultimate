@@ -212,7 +212,6 @@ class AndroidBridge(private val context: Context, private val webView: WebView) 
     }
 
     @JavascriptInterface
-    @JavascriptInterface
     fun speakText(text: String) {
         try {
             val speech = VenomSpeech(context, webView)
