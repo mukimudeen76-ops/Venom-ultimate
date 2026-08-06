@@ -196,34 +196,9 @@ class MainActivity : AppCompatActivity() {
                 request: WebResourceRequest
             ): WebResourceResponse? = assetLoader.shouldInterceptRequest(request.url)
 
-            override fun onReceivedError(
-                view: WebView?, request: WebResourceRequest?, error: android.webkit.WebResourceError?
-            ) {
-                super.onReceivedError(view, request, error)
-                // Main frame error (page hi load nahi hua) — retry once, phir native screen
-                if (request?.isForMainFrame == true && error != null) {
-                    if (!reloadedOnce) {
-                        reloadedOnce = true
-                        view?.postDelayed({ view?.reload() }, 800)
-                    } else {
-                        showNativeRetry("Load error: ${error.description}")
-                    }
-                }
-            }
 
-            override fun onReceivedHttpError(
-                view: WebView?, request: WebResourceRequest?, errorResponse: WebResourceResponse?
-            ) {
-                super.onReceivedHttpError(view, request, errorResponse)
-                if (request?.isForMainFrame == true) {
-                    if (!reloadedOnce) {
-                        reloadedOnce = true
-                        view?.postDelayed({ view?.reload() }, 800)
-                    } else {
-                        showNativeRetry("HTTP error (${errorResponse?.statusCode}).")
-                    }
-                }
-            }
+
+
 
             override fun onPageFinished(view: WebView?, url: String?) {
                 pageLoaded = true

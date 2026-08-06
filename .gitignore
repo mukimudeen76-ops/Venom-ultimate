@@ -5,3 +5,5 @@ android/local.properties
 android/app/src/main/assets/www/
 android/app/venom-release.jks
 debug.keystore
+android/app/build/
+android/.gradle/
