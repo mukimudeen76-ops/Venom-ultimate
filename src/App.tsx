@@ -72,6 +72,11 @@ export default function App() {
       }
       setAuthLoading(false);
     };
+    loadUser();
+    // BLACK-SCREEN FIX: IndexedDB/async hang ho to bhi 2.5s me loading khatam —
+    // app kabhi atki hui loading pe nahi rehni chahiye.
+    const forceTimer = setTimeout(() => setAuthLoading((prev) => { if (prev) { setUser({ uid: "local_user", displayName: "Guest", email: "guest@local" }); return false; } return prev; }), 2500);
+    return () => clearTimeout(forceTimer);
 
     loadUser();
   }, []);
@@ -306,14 +311,14 @@ export default function App() {
 
     if (commandResult.action === "MUTING") {
       setIsMuted(true);
-      if (liveSessionRef.current) liveSessionRef.current.setMuted(true);
+      if (liveSessionRef.current) liveSessionRef.current.isMuted = true;
       setMessages((prev) => [...prev, { id: Date.now().toString() + "-v", sender: "venom", text: "Going silent now, Boss." }]);
       setAppState("idle");
       return;
     }
     if (commandResult.action === "UNMUTING") {
       setIsMuted(false);
-      if (liveSessionRef.current) liveSessionRef.current.setMuted(false);
+      if (liveSessionRef.current) liveSessionRef.current.isMuted = false;
       setMessages((prev) => [...prev, { id: Date.now().toString() + "-v", sender: "venom", text: "I'm back! I will speak now." }]);
       setAppState("idle");
       return;

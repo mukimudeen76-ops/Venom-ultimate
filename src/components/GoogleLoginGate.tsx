@@ -30,15 +30,28 @@ export default function GoogleLoginGate({ onDone }: Props) {
       if (localStorage.getItem("venom_guest") === "1") { onDone(); return; }
     } catch (e) { /* ignore */ }
 
+    let done = false;
+    const finish = (fn: () => void) => { if (!done) { done = true; fn(); } };
+
     const unsub = onAuthStateChanged(auth, (u: any) => {
       if (u) {
         try { localStorage.setItem("venom_user", u.email || u.uid || ""); } catch (e) {}
-        onDone();
+        finish(onDone);
       } else {
-        setMode("choose");
+        finish(() => setMode("choose"));
       }
     });
-    return () => { try { unsub(); } catch (e) {} };
+
+    // BLACK-SCREEN FIX: Firebase auth WebView me hang ho (onAuthStateChanged
+    // kabhi na fire) to 2.5s me "choose" screen dikhao — loading pe kabhi na atko.
+    const timeout = setTimeout(() => {
+      finish(() => setMode("choose"));
+    }, 2500);
+
+    return () => {
+      try { unsub(); } catch (e) {}
+      clearTimeout(timeout);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
