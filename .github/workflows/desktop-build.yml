@@ -57,8 +57,8 @@ jobs:
         shell: bash
         run: |
           for i in 1 2 3 4; do
-            npm ci && break
-            echo "desktop npm ci attempt $i failed — retrying in 20s..."
+            npm install --no-audit --no-fund && break
+            echo "desktop npm install attempt $i failed — retrying in 20s..."
             sleep 20
           done
 
