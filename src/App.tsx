@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { Mic, MicOff, Loader2, Volume2, VolumeX, Keyboard, Send, Trash2, Settings, Monitor, MonitorOff, Brain, Sparkles, Bell, X, Clock, MessageSquare, Copy, Check, Search, ShieldCheck, Cpu, Database, Terminal, AlertTriangle, ChevronRight, Zap, QrCode } from "lucide-react";
+import { Mic, MicOff, Loader2, Volume2, VolumeX, Keyboard, Send, Trash2, Settings, Monitor, MonitorOff, Brain, Sparkles, Bell, X, Clock, MessageSquare, Copy, Check, Search, ShieldCheck, Cpu, Database, Terminal, AlertTriangle, ChevronRight, Zap, QrCode, Wrench } from "lucide-react";
 import { getVenomResponse, getVenomAudio, resetVenomSession } from "./services/geminiService";
 import { processCommand } from "./services/commandService";
 import { reminderService, ReminderItem } from "./services/reminderService";
@@ -14,6 +14,8 @@ import { QrPairingModal } from "./components/QrPairingModal";
 import { playPCM } from "./utils/audioUtils";
 import { motion, AnimatePresence } from "motion/react";
 import SettingsModal from "./components/SettingsModal";
+import ToolsModal from "./components/ToolsModal";
+import { detectAgent, buildAgentInstruction, emitProgress, AGENT_COUNT } from "./services/agentSwarmService";
 import GoogleLoginGate from "./components/GoogleLoginGate";
 import { NativeBridge } from "./services/nativeBridge";
 
@@ -36,6 +38,7 @@ export default function App() {
   const [user, setUser] = useState<any>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [showToolsModal, setShowToolsModal] = useState(false);
   const [showLoginGate, setShowLoginGate] = useState(() => {
     try { return localStorage.getItem("venom_guest") !== "1"; } catch (e) { return true; }
   });
@@ -354,9 +357,18 @@ export default function App() {
         }, 1500);
       }
     } else {
-      // 2. General Chit-Chat via Gemini
-      const promptToSend = selectedAgent !== "venom_core" ? `[AGENT_ID: ${selectedAgent}] ${finalTranscript}` : finalTranscript;
-      responseText = await getVenomResponse(promptToSend, messagesRef.current);
+      // 2. AGENT SWARM — sahi agent apne aap ACTIVE (style bilkul same)
+      const agent = detectAgent(finalTranscript);
+      const agentPrompt = `[AGENT_ID: ${selectedAgent}] ${finalTranscript}${buildAgentInstruction(agent)}`;
+      // Agent active message + progress reporting
+      setMessages((prev) => [...prev, { id: Date.now().toString() + "-a", sender: "venom", text: `${agent.emoji} ${agent.name} active — ${agent.tagline}` }]);
+      emitProgress((m) => {
+        setMessages((prev) => [...prev, { id: Date.now().toString() + "-p", sender: "venom", text: `⚙️ ${m}` }]);
+      }, 1, 3, "Kaam shuru kar raha hoon");
+      responseText = await getVenomResponse(agentPrompt, messagesRef.current);
+      emitProgress((m) => {
+        setMessages((prev) => [...prev, { id: Date.now().toString() + "-p", sender: "venom", text: `✅ ${m}` }]);
+      }, 3, 3, "Kaam pura — jawab ready");
       setMessages((prev) => [...prev, { id: Date.now().toString() + "-v", sender: "venom", text: responseText }]);
       
       if (!isMuted) {
@@ -371,7 +383,17 @@ export default function App() {
   }, [isMuted, isSessionActive]);
 
   useEffect(() => {
+    const onOpenTools = (e: any) => {
+      const detail = e?.detail || {};
+      setShowToolsModal(true);
+      if (detail.qr) {
+        // QR tool — cross-device pairing modal bhi de sakte hain
+        try { window.dispatchEvent(new CustomEvent("venomOpenQr")); } catch (err) {}
+      }
+    };
+    window.addEventListener("venomOpenTools", onOpenTools);
     return () => {
+      window.removeEventListener("venomOpenTools", onOpenTools);
       if (liveSessionRef.current) {
         liveSessionRef.current.stop();
       }
@@ -508,6 +530,8 @@ export default function App() {
               onClose={() => setShowSettingsModal(false)}
             />
           )}
+
+          {showToolsModal && <ToolsModal onClose={() => setShowToolsModal(false)} />}
 
           {/* Cinematic Dynamic Ambient Background Gradients */}
           <div className="absolute inset-0 w-full h-full overflow-hidden pointer-events-none transition-all duration-1000">
@@ -704,6 +728,15 @@ export default function App() {
           >
             <Brain size={16} />
             <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-emerald-400 rounded-full ring-2 ring-[#08080c] animate-pulse" />
+          </button>
+
+          <button
+            onClick={() => setShowToolsModal(true)}
+            className="p-1.5 sm:p-2 rounded-full bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-300 transition-colors border border-cyan-500/40 relative"
+            title="VENOM Toolbox (100+ tools — bol ke bhi use karo)"
+          >
+            <Wrench size={16} />
+            <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-pink-400 rounded-full ring-2 ring-[#08080c] animate-pulse" />
           </button>
 
           <button

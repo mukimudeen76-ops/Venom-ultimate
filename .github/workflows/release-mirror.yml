@@ -73,8 +73,9 @@ jobs:
           VER="${TAG#v}"
           cd site
           mkdir -p dl
-          rm -f dl/VENOM-ULTIMATE-*.apk
+          rm -f dl/VENOM-ULTIMATE-*.apk dl/VENOM-ULTIMATE-*.exe
           cp ../assets/*.apk dl/VENOM-ULTIMATE-${VER}.apk 2>/dev/null || true
+          cp ../assets/*.exe dl/VENOM-ULTIMATE-${VER}.exe 2>/dev/null || true
 
           APK_SIZE=0
           if [ -f "dl/VENOM-ULTIMATE-${VER}.apk" ]; then
@@ -85,8 +86,9 @@ jobs:
           {
             "latestVersion": "${VER}",
             "apkUrl": "https://mukimudeen76-ops.github.io/VENOM-Website/dl/VENOM-ULTIMATE-${VER}.apk",
+            "exeUrl": "https://mukimudeen76-ops.github.io/VENOM-Website/dl/VENOM-ULTIMATE-${VER}.exe",
             "sizeBytes": ${APK_SIZE},
-            "releaseNotes": "VENOM Ultimate ${VER} released.",
+            "releaseNotes": "VENOM ${VER} released — 100 tools + 11 agents + story + website builder.",
             "minVersion": "${VER}",
             "killSwitch": false,
             "blockedVersions": [],

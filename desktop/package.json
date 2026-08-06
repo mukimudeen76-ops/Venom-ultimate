@@ -1,0 +1,42 @@
+{
+  "name": "venom-ultimate-desktop",
+  "productName": "VENOM",
+  "version": "1.2.0",
+  "description": "VENOM Ultimate - AI Voice Assistant (Windows desktop build)",
+  "main": "main.js",
+  "author": "mukimudeen76-ops",
+  "license": "UNLICENSED",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win portable --publish never"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.novax.venom",
+    "productName": "VENOM",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "dist/**/*"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "assets/icon.png",
+      "signAndEditExecutable": false
+    },
+    "afterPack": "scripts/afterPack.js"
+  }
+}

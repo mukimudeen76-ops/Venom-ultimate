@@ -109,6 +109,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: android/app/build/outputs/apk/release/*.apk
-          name: VENOM Ultimate ${{ github.ref_name }}
+          name: VENOM ${{ github.ref_name }}
           tag_name: ${{ github.ref_name }}
           generate_release_notes: true
