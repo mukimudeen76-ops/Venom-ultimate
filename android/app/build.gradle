@@ -42,7 +42,7 @@ android {
         // Cloudflare Worker URL via -PupdateEndpoint="..." at build time.
         def updateEndpoint = project.findProperty('updateEndpoint')?.toString()?.trim()
         buildConfigField "String", "UPDATE_ENDPOINT",
-            "\"${updateEndpoint != null && updateEndpoint.length() > 0 ? updateEndpoint : "https://mukimudeen76-ops.github.io/VENOM-Website/venom-update.json"}\""
+            "\"${updateEndpoint != null && updateEndpoint.length() > 0 ? updateEndpoint : "https://mukimudeen76-ops.github.io/VENOM-Website/venom-ultimate-update.json"}\""
     }
 
     buildTypes {

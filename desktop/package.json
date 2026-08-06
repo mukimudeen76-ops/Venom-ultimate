@@ -1,7 +1,7 @@
 {
   "name": "venom-ultimate-desktop",
   "productName": "VENOM",
-  "version": "1.2.0",
+  "version": "1.2.2",
   "description": "VENOM Ultimate - AI Voice Assistant (Windows desktop build)",
   "main": "main.js",
   "author": "mukimudeen76-ops",
