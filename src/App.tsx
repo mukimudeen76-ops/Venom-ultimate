@@ -348,10 +348,7 @@ export default function App() {
       
       if (!isMuted) {
         setAppState("speaking");
-        const audioBase64 = await getVenomAudio(responseText);
-        if (audioBase64) {
-          await playPCM(audioBase64);
-        }
+        await speakReply(responseText);
       }
 
       setAppState("idle");
@@ -378,10 +375,7 @@ export default function App() {
       
       if (!isMuted) {
         setAppState("speaking");
-        const audioBase64 = await getVenomAudio(responseText);
-        if (audioBase64) {
-          await playPCM(audioBase64);
-        }
+        await speakReply(responseText);
       }
       setAppState("idle");
     }
@@ -397,8 +391,19 @@ export default function App() {
       }
     };
     window.addEventListener("venomOpenTools", onOpenTools);
+
+    // FIX: NATIVE wake word (VenomForegroundService "wake venom") -> app listening shuru
+    const onWake = () => {
+      try {
+        if (!isSessionActive && !isMuted) {
+          toggleListening();
+        }
+      } catch (e) { /* ignore */ }
+    };
+    window.addEventListener("venomWakeWord", onWake);
     return () => {
       window.removeEventListener("venomOpenTools", onOpenTools);
+      window.removeEventListener("venomWakeWord", onWake);
       if (liveSessionRef.current) {
         liveSessionRef.current.stop();
       }
@@ -426,6 +431,27 @@ export default function App() {
       NativeBridge.setLiveSessionActive(false);
     };
   }, [user, isSessionActive]);
+
+  /** FIX: phone pe reply HAMESHA awaaz se — native TTS (Android TextToSpeech) pehle,
+   *  Gemini TTS (network) fallback. API key na ho to bhi bolta hai. */
+  const speakReply = async (text: string) => {
+    if (!text) return;
+    try {
+      if (NativeBridge.isAndroidNative() && NativeBridge.hasNativeSpeech()) {
+        NativeBridge.speakNative(text);
+        return;
+      }
+      if (NativeBridge.isDesktop()) {
+        NativeBridge.speakNative(text);
+        return;
+      }
+    } catch (e) { /* ignore */ }
+    // Web/fallback: Gemini TTS
+    try {
+      const audioBase64 = await getVenomAudio(text);
+      if (audioBase64) await playPCM(audioBase64);
+    } catch (e) { /* ignore */ }
+  };
 
   const toggleListening = async () => {
     if (isSessionActive) {

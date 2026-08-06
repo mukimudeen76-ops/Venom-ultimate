@@ -42,6 +42,20 @@ export default function GoogleLoginGate({ onDone }: Props) {
       }
     });
 
+    // FIX: Android WebView me Google popup BLOCK rehta hai — auto-Guest chalo
+    // (app kabhi atakta nahi; Google sign-in website/desktop pe full kaam karta hai).
+    if (NativeBridge.isAndroidNative()) {
+      const autoGuest = setTimeout(() => {
+        try { localStorage.setItem("venom_guest", "1"); } catch (e) {}
+        finish(onDone);
+      }, 800);
+      return () => {
+        try { unsub(); } catch (e) {}
+        clearTimeout(timeout);
+        clearTimeout(autoGuest);
+      };
+    }
+
     // BLACK-SCREEN FIX: Firebase auth WebView me hang ho (onAuthStateChanged
     // kabhi na fire) to 2.5s me "choose" screen dikhao — loading pe kabhi na atko.
     const timeout = setTimeout(() => {

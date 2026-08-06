@@ -212,6 +212,21 @@ class AndroidBridge(private val context: Context, private val webView: WebView) 
     }
 
     @JavascriptInterface
+    @JavascriptInterface
+    fun speakText(text: String) {
+        try {
+            val speech = VenomSpeech(context, webView)
+            speech.speak(text)
+        } catch (e: Exception) {
+            Log.e(TAG, "speakText error", e)
+        }
+    }
+
+    @JavascriptInterface
+    fun hasNativeSpeech(): Boolean {
+        return true
+    }
+
     fun getVoiceName(): String {
         return securePrefs.getString(KEY_VOICE_NAME, "Aoede") ?: "Aoede"
     }
