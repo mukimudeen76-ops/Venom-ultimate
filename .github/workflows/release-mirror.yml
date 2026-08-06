@@ -1,0 +1,102 @@
+name: Mirror Venom-Ultimate Release to Website
+
+# Jab venom-ultimate me release publish hota hai:
+#  1. release asset (APK) download hota hai
+#  2. website repo me dl/ me daala jata hai (VENOM-ULTIMATE-{ver}.apk)
+#  3. venom-ultimate-update.json update hota hai (ALAG manifest — working app
+#     ka venom-update.json NAHI chhedta, taaki dono app safe chalein)
+#  4. commit + push (VENOM_WEBSITE_TOKEN se)
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  mirror:
+    name: Mirror venom-ultimate release to website
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout (source, no git history)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Determine release tag
+        id: tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          if [[ "${{ github.event.release.tag_name }}" != "" ]]; then
+            TAG="${{ github.event.release.tag_name }}"
+          else
+            TAG=$(gh release view --repo "${GITHUB_REPOSITORY}" --json tagName -q .tagName 2>/dev/null || echo "")
+          fi
+          if [ -z "$TAG" ]; then
+            echo "::error::release tag nahi mila"
+            exit 1
+          fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Download release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          TAG="${{ steps.tag.outputs.tag }}"
+          mkdir -p assets
+          gh release download "$TAG" --repo "${GITHUB_REPOSITORY}" --dir assets --clobber
+          ls -la assets/
+
+      - name: Clone website repo (public mirror)
+        env:
+          PAT: ${{ secrets.VENOM_WEBSITE_TOKEN }}
+        shell: bash
+        run: |
+          if [ -z "$PAT" ]; then
+            echo "::error::VENOM_WEBSITE_TOKEN secret nahi hai"
+            exit 1
+          fi
+          git clone "https://x-access-token:${PAT}@github.com/mukimudeen76-ops/VENOM-Website.git" site
+          cd site
+          git config user.name "venom-ultimate-release-bot"
+          git config user.email "venom-ultimate-release-bot@users.noreply.github.com"
+
+      - name: Copy asset + update separate manifest
+        shell: bash
+        run: |
+          TAG="${{ steps.tag.outputs.tag }}"
+          VER="${TAG#v}"
+          cd site
+          mkdir -p dl
+          rm -f dl/VENOM-ULTIMATE-*.apk
+          cp ../assets/*.apk dl/VENOM-ULTIMATE-${VER}.apk 2>/dev/null || true
+
+          APK_SIZE=0
+          if [ -f "dl/VENOM-ULTIMATE-${VER}.apk" ]; then
+            APK_SIZE=$(stat -c%s "dl/VENOM-ULTIMATE-${VER}.apk")
+          fi
+
+          cat > venom-ultimate-update.json <<EOF
+          {
+            "latestVersion": "${VER}",
+            "apkUrl": "https://mukimudeen76-ops.github.io/VENOM-Website/dl/VENOM-ULTIMATE-${VER}.apk",
+            "sizeBytes": ${APK_SIZE},
+            "releaseNotes": "VENOM Ultimate ${VER} released.",
+            "minVersion": "${VER}",
+            "killSwitch": false,
+            "blockedVersions": [],
+            "delivery": "direct"
+          }
+          EOF
+          cat venom-ultimate-update.json
+
+          git add -A
+          git -c user.name="venom-ultimate-release-bot" -c user.email="venom-ultimate-release-bot@users.noreply.github.com" \
+            commit -m "venom-ultimate mirror: ${TAG} (auto)" || echo "nothing to commit"
+          git push origin main
+          echo "MIRROR DONE OK"
