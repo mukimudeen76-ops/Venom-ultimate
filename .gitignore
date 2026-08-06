@@ -1,9 +1,7 @@
 node_modules/
-build/
 dist/
-coverage/
-.DS_Store
-*.log
-.env*
-!.env.example
-firebase-applet-config.json
+android/.gradle/
+android/local.properties
+android/app/src/main/assets/www/
+android/app/venom-release.jks
+debug.keystore

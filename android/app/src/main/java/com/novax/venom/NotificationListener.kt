@@ -2,6 +2,7 @@ package com.novax.venom
 
 import android.app.Notification
 import android.app.RemoteInput
+import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import android.service.notification.NotificationListenerService
@@ -23,6 +24,8 @@ class NotificationListener : NotificationListenerService() {
     companion object {
         private const val TAG = "NotificationListener"
         private val activeNotificationsMap = mutableMapOf<String, ActiveNotificationData>()
+        @Volatile
+        private var appContext: Context? = null
 
         fun getNotificationsJson(): String {
             val jsonArray = JSONArray()
@@ -38,6 +41,23 @@ class NotificationListener : NotificationListenerService() {
                 }
             }
             return jsonArray.toString()
+        }
+
+        fun deleteNotification(id: String): Boolean {
+            synchronized(activeNotificationsMap) {
+                val item = activeNotificationsMap[id] ?: return false
+                val ctx = appContext ?: return false
+                try {
+                    androidx.core.app.NotificationManagerCompat.from(ctx)
+                        .cancel(item.sbn.tag ?: "venom", item.sbn.id)
+                    activeNotificationsMap.remove(id)
+                    Log.d(TAG, "Deleted notification $id")
+                    return true
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to delete notification", e)
+                    return false
+                }
+            }
         }
 
         fun replyNotification(id: String, messageText: String): Boolean {
@@ -67,6 +87,11 @@ class NotificationListener : NotificationListenerService() {
             }
             return false
         }
+    }
+
+    override fun onCreate() {
+        super.onCreate()
+        appContext = applicationContext
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification?) {

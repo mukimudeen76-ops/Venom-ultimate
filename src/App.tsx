@@ -14,6 +14,7 @@ import { QrPairingModal } from "./components/QrPairingModal";
 import { playPCM } from "./utils/audioUtils";
 import { motion, AnimatePresence } from "motion/react";
 import SettingsModal from "./components/SettingsModal";
+import GoogleLoginGate from "./components/GoogleLoginGate";
 import { NativeBridge } from "./services/nativeBridge";
 
 type AppState = "idle" | "listening" | "processing" | "speaking";
@@ -35,6 +36,9 @@ export default function App() {
   const [user, setUser] = useState<any>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [showLoginGate, setShowLoginGate] = useState(() => {
+    try { return localStorage.getItem("venom_guest") !== "1"; } catch (e) { return true; }
+  });
 
   useEffect(() => {
     const loadUser = async () => {
@@ -476,9 +480,15 @@ export default function App() {
 
   return (
     <div className="relative w-full h-full bg-[#02080b] flex flex-col overflow-hidden text-white font-sans">
+      {showLoginGate && <GoogleLoginGate onDone={() => setShowLoginGate(false)} />}
       {authLoading ? (
-        <div className="flex items-center justify-center h-full">
-          <Loader2 className="w-8 h-8 animate-spin text-violet-500" />
+        <div className="flex flex-col items-center justify-center h-full gap-4 bg-[#02080b]">
+          <motion.div
+            animate={{ scale: [1, 1.2, 1], rotate: [0, 360] }}
+            transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+            className="w-16 h-16 rounded-full bg-gradient-to-tr from-cyan-400 via-violet-500 to-pink-500 shadow-[0_0_40px_rgba(139,92,246,0.6)]"
+          />
+          <p className="text-cyan-300 font-mono text-sm animate-pulse">VENOM loading...</p>
         </div>
       ) : (
         <div className="h-full w-full bg-[#050505] text-white flex flex-col lg:flex-row font-sans relative overflow-hidden m-0 p-0">

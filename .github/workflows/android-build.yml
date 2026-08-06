@@ -1,4 +1,4 @@
-name: Build Native Android APK (VENOM)
+name: Build VENOM Ultimate APK (WebView)
 
 on:
   push:
@@ -12,10 +12,39 @@ jobs:
   build-apk:
     name: Build Release APK
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install web dependencies
+        run: npm ci
+
+      - name: Build web app (Vite) — venom-ultimate ka pura web UI
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY }}
+          VITE_FIREBASE_AUTH_DOMAIN: ${{ secrets.VITE_FIREBASE_AUTH_DOMAIN }}
+          VITE_FIREBASE_PROJECT_ID: ${{ secrets.VITE_FIREBASE_PROJECT_ID }}
+          VITE_FIREBASE_STORAGE_BUCKET: ${{ secrets.VITE_FIREBASE_STORAGE_BUCKET }}
+          VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID }}
+          VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID }}
+        run: npm run build
+
+      - name: Bundle web app into Android assets (WebView)
+        run: |
+          mkdir -p android/app/src/main/assets/www
+          cp -r dist/* android/app/src/main/assets/www/
+          rm -rf android/app/src/main/assets/www/vrm
+          ls android/app/src/main/assets/www/ | head
 
       - name: Setup Java JDK 17
         uses: actions/setup-java@v4
@@ -30,92 +59,56 @@ jobs:
         run: |
           mkdir -p android/app
           if [ -n "${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}" ]; then
-            echo "Decoding GOOGLE_SERVICES_JSON_BASE64 into android/app/google-services.json"
             echo "${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}" | base64 --decode > android/app/google-services.json
-          elif [ -n "${{ secrets.GOOGLE_SERVICES_JSON }}" ]; then
-            echo "Writing GOOGLE_SERVICES_JSON into android/app/google-services.json"
-            echo '${{ secrets.GOOGLE_SERVICES_JSON }}' > android/app/google-services.json
           elif [ -f "android/app/google-services.json" ]; then
             echo "Found existing android/app/google-services.json"
-          elif [ -f "app/google-services.json" ]; then
-            echo "Copying app/google-services.json to android/app/google-services.json"
-            cp app/google-services.json android/app/google-services.json
-          else
-            echo "Creating default google-services.json for build..."
-            cat << 'EOF' > android/app/google-services.json
-          {
-            "project_info": {
-              "project_number": "169366370796",
-              "project_id": "reverberant-stock-34dh4",
-              "storage_bucket": "reverberant-stock-34dh4.firebasestorage.app"
-            },
-            "client": [
-              {
-                "client_info": {
-                  "mobilesdk_app_id": "1:169366370796:android:5a1db2cb340d683f56e8c9",
-                  "android_client_info": {
-                    "package_name": "com.novax.venom"
-                  }
-                },
-                "oauth_client": [
-                  {
-                    "client_id": "169366370796-3ao327ifkr54tfcekd2jnsepuedjftj2.apps.googleusercontent.com",
-                    "client_type": 1,
-                    "android_info": {
-                      "package_name": "com.novax.venom",
-                      "certificate_hash": "5d2e9046e8015b7ad88ed6c4217eb987dad869f6"
-                    }
-                  }
-                ],
-                "api_key": [
-                  {
-                    "current_key": "AIzaSyC9yKtKGCu33NHT9beQ8Mx8vQrw9Kq3ubc"
-                  }
-                ],
-                "services": {
-                  "appinvite_service": {
-                    "other_platform_oauth_client": []
-                  }
-                }
-              }
-            ],
-            "configuration_version": "1"
-          }
-          EOF
           fi
 
-      - name: Setup and Fix Gradle Wrapper
+      - name: Decode signing keystore (from secrets)
+        shell: bash
         run: |
-          cd android
-          if [ -f "gradlew" ]; then
-            if ! ./gradlew --version > /dev/null 2>&1; then
-              echo "Gradle wrapper is broken. Recreating..."
-              rm -rf gradle/wrapper/gradle-wrapper.jar gradle/wrapper/gradle-wrapper.properties gradlew gradlew.bat
-              gradle wrapper || ./gradlew wrapper
-            else
-              echo "Gradle wrapper is intact."
-            fi
-          else
-            echo "Gradle wrapper not found. Installing..."
-            gradle wrapper || ./gradlew wrapper
+          if [ -n "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" ]; then
+            echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 --decode > android/app/venom-release.jks
+            echo "VENOM_KEYSTORE_PATH=venom-release.jks" >> "$GITHUB_ENV"
+            echo "VENOM_KEYSTORE_PASSWORD=${{ secrets.VENOM_KEYSTORE_PASSWORD }}" >> "$GITHUB_ENV"
+            echo "VENOM_KEY_ALIAS=${{ secrets.VENOM_KEY_ALIAS }}" >> "$GITHUB_ENV"
+            echo "VENOM_KEY_PASSWORD=${{ secrets.VENOM_KEY_PASSWORD }}" >> "$GITHUB_ENV"
           fi
-          chmod +x gradlew
 
-      - name: Generate Debug Keystore
+      - name: Compute version from ref
+        id: version
+        shell: bash
         run: |
-          if [ ! -f "android/app/debug.keystore" ]; then
-            echo "Generating debug keystore..."
-            keytool -genkey -v -keystore android/app/debug.keystore -alias androiddebugkey -storepass android -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+          REF="${{ github.ref }}"
+          if [[ "$REF" == refs/tags/v* ]]; then
+            TAG="${REF#refs/tags/v}"
+            IFS='.' read -r MAJ MIN PAT <<< "$TAG"
+            echo "name=$TAG" >> "$GITHUB_OUTPUT"
+            echo "code=$(( MAJ * 10000 + MIN * 100 + PAT ))" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=1.0.0" >> "$GITHUB_OUTPUT"
+            echo "code=100" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Build Release APK with Gradle
+        working-directory: android
         run: |
-          cd android
-          ./gradlew assembleRelease --no-daemon
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon -PversionName="${{ steps.version.outputs.name }}" -PversionCode=${{ steps.version.outputs.code }}
 
       - name: Upload APK Artifact
+        if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
-          name: venom-release-apk
+          name: venom-ultimate-release-apk
           path: android/app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
 
+      - name: Publish GitHub Release (tags only)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: android/app/build/outputs/apk/release/*.apk
+          name: VENOM Ultimate ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
+          generate_release_notes: true
