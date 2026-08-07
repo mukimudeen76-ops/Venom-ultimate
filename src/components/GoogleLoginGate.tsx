@@ -42,13 +42,14 @@ export default function GoogleLoginGate({ onDone }: Props) {
       }
     });
 
-    // FIX: Android WebView me Google popup BLOCK rehta hai — auto-Guest chalo
-    // (app kabhi atakta nahi; Google sign-in website/desktop pe full kaam karta hai).
+    // Android: WebView me popup block hota hai — Google button browser me
+    // sign-in kholta hai (fir wapas aake guest continue). Auto-guest sirf 6s
+    // ke baad agar auth hang rahe (app kabhi atakta nahi).
     if (NativeBridge.isAndroidNative()) {
       const autoGuest = setTimeout(() => {
         try { localStorage.setItem("venom_guest", "1"); } catch (e) {}
         finish(onDone);
-      }, 800);
+      }, 6000);
       return () => {
         try { unsub(); } catch (e) {}
         clearTimeout(timeout);
@@ -70,6 +71,16 @@ export default function GoogleLoginGate({ onDone }: Props) {
   }, []);
 
   const signIn = async () => {
+    // Android WebView: popup block rehta hai -> external browser me sign-in kholo
+    // (wahan Google sign-in pura chalta hai). Wapas aakar Guest continue karo.
+    if (NativeBridge.isAndroidNative()) {
+      setError("Android app me Google sign-in external browser me hota hai. Browser me sign-in karke wapas aao, phir Guest se continue karo. (Web/Desktop version me yahan hi sign-in hota hai.)");
+      try {
+        const url = window.location.href.split("#")[0];
+        (window as any).AndroidBridge?.openBrowser?.(url + "?google=1");
+      } catch (e) {}
+      return;
+    }
     setBusy(true); setError("");
     try {
       const cred = await signInWithPopup(auth, googleProvider);

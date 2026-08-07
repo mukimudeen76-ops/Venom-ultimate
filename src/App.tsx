@@ -453,9 +453,61 @@ export default function App() {
     } catch (e) { /* ignore */ }
   };
 
+  /** FIX: Android WebView me webkitSpeechRecognition nahi hota — native
+   *  VenomSpeech (SpeechRecognizer) use karo. Text aane par handleTextCommand. */
+  const nativeListening = (() => {
+    let active = false;
+    const onResult = (e: any) => {
+      const text = e?.detail?.text || "";
+      if (text && e?.detail?.final !== false) {
+        active = false;
+        setAppState("idle");
+        NativeBridge.setLiveSessionActive(false);
+        handleTextCommand(text);
+      }
+    };
+    const onEnd = () => {
+      active = false;
+      setAppState("idle");
+    };
+    return {
+      start: () => {
+        try {
+          const vs = (window as any).VenomSpeech;
+          if (!vs || !vs.startListening) return false;
+          if (active) return true;
+          active = true;
+          setAppState("listening");
+          NativeBridge.setLiveSessionActive(true);
+          vs.startListening("hi-IN");
+          return true;
+        } catch (e) { active = false; return false; }
+      },
+      stop: () => {
+        try {
+          const vs = (window as any).VenomSpeech;
+          if (vs && vs.stopListening) vs.stopListening();
+        } catch (e) {}
+        active = false;
+      },
+      onResult, onEnd,
+    };
+  })();
+
+  useEffect(() => {
+    window.addEventListener("venomSpeechResult", nativeListening.onResult);
+    window.addEventListener("venomSpeechEnd", nativeListening.onEnd);
+    return () => {
+      window.removeEventListener("venomSpeechResult", nativeListening.onResult);
+      window.removeEventListener("venomSpeechEnd", nativeListening.onEnd);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const toggleListening = async () => {
     if (isSessionActive) {
       setIsSessionActive(false);
+      nativeListening.stop();
       if (liveSessionRef.current) {
         liveSessionRef.current.stop();
         liveSessionRef.current = null;
@@ -464,6 +516,13 @@ export default function App() {
       resetVenomSession();
       NativeBridge.setLiveSessionActive(false);
     } else {
+      // FIX: bina API key ke Gemini Live fail hota hai -> native speech (offline)
+      if (NativeBridge.isAndroidNative() && !NativeBridge.getApiKey()) {
+        if (nativeListening.start()) {
+          setIsSessionActive(true);
+          return;
+        }
+      }
       try {
         setIsSessionActive(true);
         resetVenomSession();

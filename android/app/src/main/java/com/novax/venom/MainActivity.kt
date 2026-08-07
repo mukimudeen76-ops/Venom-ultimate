@@ -177,7 +177,14 @@ class MainActivity : AppCompatActivity() {
             mediaPlaybackRequiresUserGesture = false
             mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
             javaScriptCanOpenWindowsAutomatically = true
+            // SCREEN FIT: sab mobile pe poori screen bhar ke fit — wide viewport +
+            // overview mode (zoom-out) + normal text zoom.
+            useWideViewPort = true
+            loadWithOverviewMode = true
+            textZoom = 100
+            setSupportZoom(false)
         }
+        webView.setInitialScale(0)
         webView.setBackgroundColor(Color.parseColor("#050505"))
         webView.overScrollMode = View.OVER_SCROLL_NEVER
 
