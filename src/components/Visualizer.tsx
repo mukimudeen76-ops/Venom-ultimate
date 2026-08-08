@@ -8,7 +8,7 @@ interface VisualizerProps {
 }
 
 export default function Visualizer({ state, activeAgent = "venom_core" }: VisualizerProps) {
-  const getRingAnimation = (duration: number, reverse: boolean = false): any => {
+  const getRingAnimation = (duration: number, reverse: boolean = false) => {
     const speedMultiplier = state === "listening" ? 0.6 : state === "processing" ? 0.4 : state === "speaking" ? 0.5 : 1;
     return {
       rotate: reverse ? [-360, 0] : [0, 360],
@@ -16,7 +16,7 @@ export default function Visualizer({ state, activeAgent = "venom_core" }: Visual
     };
   };
 
-  const getPulseAnimation = (): any => {
+  const getPulseAnimation = () => {
     if (state === "speaking") {
       return {
         scale: [1, 1.08, 0.96, 1.06, 1],

@@ -62,24 +62,6 @@ export class NativeBridge {
     return typeof window !== "undefined" && !!window.AndroidBridge;
   }
 
-  static isDesktop(): boolean {
-    return typeof window !== "undefined" && !!(window as any).venomDesktop;
-  }
-
-  static hasNativeSpeech(): boolean {
-    return this.isAndroidNative();
-  }
-
-  static speakNative(text: string): void {
-    if (!text) return;
-    if (this.isAndroidNative()) {
-      try { window.AndroidBridge!.speakText(text); return; } catch (e) { /* ignore */ }
-    }
-    if (this.isDesktop()) {
-      try { (window as any).venomDesktop?.control?.speak(text); return; } catch (e) { /* ignore */ }
-    }
-  }
-
   static getApiKey(): string {
     if (this.isAndroidNative()) {
       try {

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { Mic, MicOff, Loader2, Volume2, VolumeX, Keyboard, Send, Trash2, Settings, Monitor, MonitorOff, Brain, Sparkles, Bell, X, Clock, MessageSquare, Copy, Check, Search, ShieldCheck, Cpu, Database, Terminal, AlertTriangle, ChevronRight, Zap, QrCode, Wrench } from "lucide-react";
+import { Mic, MicOff, Loader2, Volume2, VolumeX, Keyboard, Send, Trash2, Settings, Monitor, MonitorOff, Brain, Sparkles, Bell, X, Clock, MessageSquare, Copy, Check, Search, ShieldCheck, Cpu, Database, Terminal, AlertTriangle, ChevronRight, Zap, QrCode, Bot } from "lucide-react";
 import { getVenomResponse, getVenomAudio, resetVenomSession } from "./services/geminiService";
 import { processCommand } from "./services/commandService";
 import { reminderService, ReminderItem } from "./services/reminderService";
@@ -11,12 +11,10 @@ import PermissionModal from "./components/PermissionModal";
 import MemoryVaultModal from "./components/MemoryVaultModal";
 import AiStudioSuiteModal from "./components/AiStudioSuiteModal";
 import { QrPairingModal } from "./components/QrPairingModal";
+import { AgentGuideModal } from "./components/AgentGuideModal";
 import { playPCM } from "./utils/audioUtils";
 import { motion, AnimatePresence } from "motion/react";
 import SettingsModal from "./components/SettingsModal";
-import ToolsModal from "./components/ToolsModal";
-import { detectAgent, buildAgentInstruction, emitProgress, AGENT_COUNT } from "./services/agentSwarmService";
-import GoogleLoginGate from "./components/GoogleLoginGate";
 import { NativeBridge } from "./services/nativeBridge";
 
 type AppState = "idle" | "listening" | "processing" | "speaking";
@@ -38,10 +36,6 @@ export default function App() {
   const [user, setUser] = useState<any>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
-  const [showToolsModal, setShowToolsModal] = useState(false);
-  const [showLoginGate, setShowLoginGate] = useState(() => {
-    try { return localStorage.getItem("venom_guest") !== "1"; } catch (e) { return true; }
-  });
 
   useEffect(() => {
     const loadUser = async () => {
@@ -72,11 +66,6 @@ export default function App() {
       }
       setAuthLoading(false);
     };
-    loadUser();
-    // BLACK-SCREEN FIX: IndexedDB/async hang ho to bhi 2.5s me loading khatam —
-    // app kabhi atki hui loading pe nahi rehni chahiye.
-    const forceTimer = setTimeout(() => setAuthLoading((prev) => { if (prev) { setUser({ uid: "local_user", displayName: "Guest", email: "guest@local" }); return false; } return prev; }), 2500);
-    return () => clearTimeout(forceTimer);
 
     loadUser();
   }, []);
@@ -170,6 +159,7 @@ export default function App() {
   const [showMemoryVaultModal, setShowMemoryVaultModal] = useState(false);
   const [showAiSuiteModal, setShowAiSuiteModal] = useState(false);
   const [showQrPairingModal, setShowQrPairingModal] = useState(false);
+  const [showAgentGuideModal, setShowAgentGuideModal] = useState(false);
   const [wakeStatus, setWakeStatus] = useState<"idle" | "listening" | "error" | "unsupported">("idle");
 
   // Sync wake status with service
@@ -311,14 +301,14 @@ export default function App() {
 
     if (commandResult.action === "MUTING") {
       setIsMuted(true);
-      if (liveSessionRef.current) liveSessionRef.current.isMuted = true;
+      if (liveSessionRef.current) liveSessionRef.current.setMuted(true);
       setMessages((prev) => [...prev, { id: Date.now().toString() + "-v", sender: "venom", text: "Going silent now, Boss." }]);
       setAppState("idle");
       return;
     }
     if (commandResult.action === "UNMUTING") {
       setIsMuted(false);
-      if (liveSessionRef.current) liveSessionRef.current.isMuted = false;
+      if (liveSessionRef.current) liveSessionRef.current.setMuted(false);
       setMessages((prev) => [...prev, { id: Date.now().toString() + "-v", sender: "venom", text: "I'm back! I will speak now." }]);
       setAppState("idle");
       return;
@@ -348,7 +338,10 @@ export default function App() {
       
       if (!isMuted) {
         setAppState("speaking");
-        await speakReply(responseText);
+        const audioBase64 = await getVenomAudio(responseText);
+        if (audioBase64) {
+          await playPCM(audioBase64);
+        }
       }
 
       setAppState("idle");
@@ -359,51 +352,24 @@ export default function App() {
         }, 1500);
       }
     } else {
-      // 2. AGENT SWARM — sahi agent apne aap ACTIVE (style bilkul same)
-      const agent = detectAgent(finalTranscript);
-      const agentPrompt = `[AGENT_ID: ${selectedAgent}] ${finalTranscript}${buildAgentInstruction(agent)}`;
-      // Agent active message + progress reporting
-      setMessages((prev) => [...prev, { id: Date.now().toString() + "-a", sender: "venom", text: `${agent.emoji} ${agent.name} active — ${agent.tagline}` }]);
-      emitProgress((m) => {
-        setMessages((prev) => [...prev, { id: Date.now().toString() + "-p", sender: "venom", text: `⚙️ ${m}` }]);
-      }, 1, 3, "Kaam shuru kar raha hoon");
-      responseText = await getVenomResponse(agentPrompt, messagesRef.current);
-      emitProgress((m) => {
-        setMessages((prev) => [...prev, { id: Date.now().toString() + "-p", sender: "venom", text: `✅ ${m}` }]);
-      }, 3, 3, "Kaam pura — jawab ready");
+      // 2. General Chit-Chat via Gemini
+      const promptToSend = selectedAgent !== "venom_core" ? `[AGENT_ID: ${selectedAgent}] ${finalTranscript}` : finalTranscript;
+      responseText = await getVenomResponse(promptToSend, messagesRef.current);
       setMessages((prev) => [...prev, { id: Date.now().toString() + "-v", sender: "venom", text: responseText }]);
       
       if (!isMuted) {
         setAppState("speaking");
-        await speakReply(responseText);
+        const audioBase64 = await getVenomAudio(responseText);
+        if (audioBase64) {
+          await playPCM(audioBase64);
+        }
       }
       setAppState("idle");
     }
   }, [isMuted, isSessionActive]);
 
   useEffect(() => {
-    const onOpenTools = (e: any) => {
-      const detail = e?.detail || {};
-      setShowToolsModal(true);
-      if (detail.qr) {
-        // QR tool — cross-device pairing modal bhi de sakte hain
-        try { window.dispatchEvent(new CustomEvent("venomOpenQr")); } catch (err) {}
-      }
-    };
-    window.addEventListener("venomOpenTools", onOpenTools);
-
-    // FIX: NATIVE wake word (VenomForegroundService "wake venom") -> app listening shuru
-    const onWake = () => {
-      try {
-        if (!isSessionActive && !isMuted) {
-          toggleListening();
-        }
-      } catch (e) { /* ignore */ }
-    };
-    window.addEventListener("venomWakeWord", onWake);
     return () => {
-      window.removeEventListener("venomOpenTools", onOpenTools);
-      window.removeEventListener("venomWakeWord", onWake);
       if (liveSessionRef.current) {
         liveSessionRef.current.stop();
       }
@@ -432,82 +398,9 @@ export default function App() {
     };
   }, [user, isSessionActive]);
 
-  /** FIX: phone pe reply HAMESHA awaaz se — native TTS (Android TextToSpeech) pehle,
-   *  Gemini TTS (network) fallback. API key na ho to bhi bolta hai. */
-  const speakReply = async (text: string) => {
-    if (!text) return;
-    try {
-      if (NativeBridge.isAndroidNative() && NativeBridge.hasNativeSpeech()) {
-        NativeBridge.speakNative(text);
-        return;
-      }
-      if (NativeBridge.isDesktop()) {
-        NativeBridge.speakNative(text);
-        return;
-      }
-    } catch (e) { /* ignore */ }
-    // Web/fallback: Gemini TTS
-    try {
-      const audioBase64 = await getVenomAudio(text);
-      if (audioBase64) await playPCM(audioBase64);
-    } catch (e) { /* ignore */ }
-  };
-
-  /** FIX: Android WebView me webkitSpeechRecognition nahi hota — native
-   *  VenomSpeech (SpeechRecognizer) use karo. Text aane par handleTextCommand. */
-  const nativeListening = (() => {
-    let active = false;
-    const onResult = (e: any) => {
-      const text = e?.detail?.text || "";
-      if (text && e?.detail?.final !== false) {
-        active = false;
-        setAppState("idle");
-        NativeBridge.setLiveSessionActive(false);
-        handleTextCommand(text);
-      }
-    };
-    const onEnd = () => {
-      active = false;
-      setAppState("idle");
-    };
-    return {
-      start: () => {
-        try {
-          const vs = (window as any).VenomSpeech;
-          if (!vs || !vs.startListening) return false;
-          if (active) return true;
-          active = true;
-          setAppState("listening");
-          NativeBridge.setLiveSessionActive(true);
-          vs.startListening("hi-IN");
-          return true;
-        } catch (e) { active = false; return false; }
-      },
-      stop: () => {
-        try {
-          const vs = (window as any).VenomSpeech;
-          if (vs && vs.stopListening) vs.stopListening();
-        } catch (e) {}
-        active = false;
-      },
-      onResult, onEnd,
-    };
-  })();
-
-  useEffect(() => {
-    window.addEventListener("venomSpeechResult", nativeListening.onResult);
-    window.addEventListener("venomSpeechEnd", nativeListening.onEnd);
-    return () => {
-      window.removeEventListener("venomSpeechResult", nativeListening.onResult);
-      window.removeEventListener("venomSpeechEnd", nativeListening.onEnd);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   const toggleListening = async () => {
     if (isSessionActive) {
       setIsSessionActive(false);
-      nativeListening.stop();
       if (liveSessionRef.current) {
         liveSessionRef.current.stop();
         liveSessionRef.current = null;
@@ -516,13 +409,6 @@ export default function App() {
       resetVenomSession();
       NativeBridge.setLiveSessionActive(false);
     } else {
-      // FIX: bina API key ke Gemini Live fail hota hai -> native speech (offline)
-      if (NativeBridge.isAndroidNative() && !NativeBridge.getApiKey()) {
-        if (nativeListening.start()) {
-          setIsSessionActive(true);
-          return;
-        }
-      }
       try {
         setIsSessionActive(true);
         resetVenomSession();
@@ -592,15 +478,9 @@ export default function App() {
 
   return (
     <div className="relative w-full h-full bg-[#02080b] flex flex-col overflow-hidden text-white font-sans">
-      {showLoginGate && <GoogleLoginGate onDone={() => setShowLoginGate(false)} />}
       {authLoading ? (
-        <div className="flex flex-col items-center justify-center h-full gap-4 bg-[#02080b]">
-          <motion.div
-            animate={{ scale: [1, 1.2, 1], rotate: [0, 360] }}
-            transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-            className="w-16 h-16 rounded-full bg-gradient-to-tr from-cyan-400 via-violet-500 to-pink-500 shadow-[0_0_40px_rgba(139,92,246,0.6)]"
-          />
-          <p className="text-cyan-300 font-mono text-sm animate-pulse">VENOM loading...</p>
+        <div className="flex items-center justify-center h-full">
+          <Loader2 className="w-8 h-8 animate-spin text-violet-500" />
         </div>
       ) : (
         <div className="h-full w-full bg-[#050505] text-white flex flex-col lg:flex-row font-sans relative overflow-hidden m-0 p-0">
@@ -620,8 +500,6 @@ export default function App() {
               onClose={() => setShowSettingsModal(false)}
             />
           )}
-
-          {showToolsModal && <ToolsModal onClose={() => setShowToolsModal(false)} />}
 
           {/* Cinematic Dynamic Ambient Background Gradients */}
           <div className="absolute inset-0 w-full h-full overflow-hidden pointer-events-none transition-all duration-1000">
@@ -796,6 +674,15 @@ export default function App() {
           </button>
 
           <button
+            onClick={() => setShowAgentGuideModal(true)}
+            className="p-1.5 sm:p-2 rounded-full bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 transition-colors border border-emerald-500/40 relative shadow-lg shadow-emerald-500/20 flex items-center gap-1.5 px-2.5"
+            title="AI Agent Copy & Transfer Guide"
+          >
+            <Bot size={16} />
+            <span className="text-[10px] font-mono font-bold hidden sm:inline">AGENT GUIDE</span>
+          </button>
+
+          <button
             onClick={() => setShowQrPairingModal(true)}
             className="p-1.5 sm:p-2 rounded-full bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 transition-colors border border-cyan-500/40 relative shadow-lg shadow-cyan-500/20"
             title="VENOM QR Cross-Device Control Link"
@@ -818,15 +705,6 @@ export default function App() {
           >
             <Brain size={16} />
             <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-emerald-400 rounded-full ring-2 ring-[#08080c] animate-pulse" />
-          </button>
-
-          <button
-            onClick={() => setShowToolsModal(true)}
-            className="p-1.5 sm:p-2 rounded-full bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-300 transition-colors border border-cyan-500/40 relative"
-            title="VENOM Toolbox (100+ tools — bol ke bhi use karo)"
-          >
-            <Wrench size={16} />
-            <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-pink-400 rounded-full ring-2 ring-[#08080c] animate-pulse" />
           </button>
 
           <button
@@ -1364,6 +1242,10 @@ export default function App() {
         <QrPairingModal
           isOpen={showQrPairingModal}
           onClose={() => setShowQrPairingModal(false)}
+        />
+        <AgentGuideModal
+          isOpen={showAgentGuideModal}
+          onClose={() => setShowAgentGuideModal(false)}
         />
 
         {/* Real Alarm Trigger Pop-up Modal */}

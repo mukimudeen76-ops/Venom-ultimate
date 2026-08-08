@@ -1,23 +1,17 @@
 package com.novax.venom
 
-import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.content.pm.PackageManager
-import android.Manifest
 import android.hardware.camera2.CameraManager
 import android.os.BatteryManager
-import android.os.Build
 import android.util.Log
 import android.webkit.JavascriptInterface
-import android.webkit.WebView
-import androidx.core.app.ActivityCompat
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import org.json.JSONObject
 
-class AndroidBridge(private val context: Context, private val webView: WebView) {
+class AndroidBridge(private val context: Context) {
     companion object {
         private const val TAG = "AndroidBridge"
         private const val PREF_FILE = "venom_secure_prefs"
@@ -38,132 +32,6 @@ class AndroidBridge(private val context: Context, private val webView: WebView) 
     )
 
     private val toolEngine = com.novax.venom.tools.ToolExecutionEngine(context)
-    private val updateManager = UpdateManager(context, webView)
-
-    // Real screen capture (MediaProjection) — wired by MainActivity.
-    var screenCaptureManager: ScreenCaptureManager? = null
-
-    private val voiceProfileManager = VoiceProfileManager(context)
-
-    @JavascriptInterface
-    fun startScreenCapture() {
-        (context as? MainActivity)?.requestScreenCapture()
-    }
-
-    @JavascriptInterface
-    fun stopScreenCapture() {
-        screenCaptureManager?.stopCapture()
-    }
-
-    @JavascriptInterface
-    fun registerVoiceProfile(name: String): String {
-        val cleanName = name.trim()
-        if (cleanName.isEmpty()) return "no-name"
-        // Non-blocking: capture happens on a background thread (NEVER on the
-        // JavaBridge thread) and the result is pushed as a 'venomVoiceResult'
-        // CustomEvent. The mic must be free for this — the caller stops the
-        // session recognizer first.
-        Thread {
-            var ok = false
-            try {
-                // small settle delay so the recognizer fully releases the mic
-                try { Thread.sleep(600) } catch (e: InterruptedException) {}
-                val features = voiceProfileManager.captureFeatures(3000)
-                if (features != null) {
-                    voiceProfileManager.saveProfile(cleanName, features)
-                    ok = true
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "registerVoiceProfile failed", e)
-            }
-            val resultOk = ok
-            pushVoiceEvent(
-                "venomVoiceResult",
-                org.json.JSONObject()
-                    .put("name", cleanName)
-                    .put("ok", resultOk)
-            )
-        }.start()
-        return "started"
-    }
-
-    @JavascriptInterface
-    fun identifySpeaker(): String {
-        // Non-blocking: never record on the JavaBridge thread. Result is pushed
-        // as a 'venomSpeakerResult' CustomEvent. If no profiles exist, skip the
-        // capture entirely (no mic use, no delay).
-        if (!voiceProfileManager.hasProfiles()) {
-            pushVoiceEvent("venomSpeakerResult", org.json.JSONObject().put("name", ""))
-            return ""
-        }
-        Thread {
-            var name = ""
-            try {
-                // wait for the wake listener to release the mic
-                try { Thread.sleep(600) } catch (e: InterruptedException) {}
-                val features = voiceProfileManager.captureFeatures(2200)
-                name = if (features != null) {
-                    voiceProfileManager.match(features) ?: ""
-                } else {
-                    ""
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "identifySpeaker failed", e)
-            }
-            val resultName = name
-            pushVoiceEvent(
-                "venomSpeakerResult",
-                org.json.JSONObject().put("name", resultName)
-            )
-        }.start()
-        return ""
-    }
-
-    private fun pushVoiceEvent(name: String, json: org.json.JSONObject) {
-        val script =
-            "try{window.dispatchEvent(new CustomEvent('$name',{detail:(${json.toString()})}));}catch(e){}"
-        webView.post { webView.evaluateJavascript(script, null) }
-    }
-
-    @JavascriptInterface
-    fun checkForUpdate() {
-        updateManager.checkForUpdate()
-    }
-
-    @JavascriptInterface
-    fun forceCheckForUpdate() {
-        updateManager.forceCheckForUpdate()
-    }
-
-    @JavascriptInterface
-    fun downloadAndInstall(downloadUrl: String) {
-        updateManager.downloadAndInstall(downloadUrl)
-    }
-
-    @JavascriptInterface
-    fun getAppVersion(): String {
-        return try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                context.packageManager
-                    .getPackageInfo(context.packageName, PackageManager.PackageInfoFlags.of(0))
-                    .versionName
-            } else {
-                @Suppress("DEPRECATION")
-                context.packageManager.getPackageInfo(context.packageName, 0).versionName
-            }
-        } catch (e: Exception) {
-            "0.0.0"
-        }
-    }
-
-    @JavascriptInterface
-    fun setMicState(state: String) {
-        when (state) {
-            "LIVE" -> MicManager.transitionTo(MicState.LIVE_SESSION_ACTIVE)
-            "TRIGGERED" -> MicManager.transitionTo(MicState.TRIGGERED)
-            else -> MicManager.transitionTo(MicState.WAKE_LISTENING)
-        }
-    }
 
     @JavascriptInterface
     fun sendSms(phoneNumber: String, message: String): String {
@@ -212,97 +80,13 @@ class AndroidBridge(private val context: Context, private val webView: WebView) 
     }
 
     @JavascriptInterface
-    fun openBrowser(url: String) {
-        try {
-            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))
-            intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-            context.startActivity(intent)
-        } catch (e: Exception) {
-            Log.e(TAG, "openBrowser error", e)
-        }
-    }
-
-    @JavascriptInterface
-    fun speakText(text: String) {
-        try {
-            val speech = VenomSpeech(context, webView)
-            speech.speak(text)
-        } catch (e: Exception) {
-            Log.e(TAG, "speakText error", e)
-        }
-    }
-
-    @JavascriptInterface
-    fun hasNativeSpeech(): Boolean {
-        return true
-    }
-
     fun getVoiceName(): String {
-        return securePrefs.getString(KEY_VOICE_NAME, "Aoede") ?: "Aoede"
+        return securePrefs.getString(KEY_VOICE_NAME, "Puck") ?: "Puck"
     }
 
     @JavascriptInterface
     fun setVoiceName(voice: String) {
         securePrefs.edit().putString(KEY_VOICE_NAME, voice.trim()).apply()
-    }
-
-    /** In-app search: Play Store / YouTube / Google / Maps / WhatsApp etc. */
-    @JavascriptInterface
-    fun searchInApp(app: String, query: String): Boolean {
-        try {
-            val q = query.trim()
-            if (q.isEmpty()) return false
-            val a = app.lowercase()
-            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW)
-            intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-            when {
-                a.contains("play") || a.contains("store") -> {
-                    intent.data = android.net.Uri.parse("market://search?q=" + android.net.Uri.encode(q))
-                }
-                a.contains("youtube") || a.contains("yt") -> {
-                    intent.data = android.net.Uri.parse("https://m.youtube.com/results?search_query=" + android.net.Uri.encode(q))
-                    intent.setPackage("com.google.android.youtube")
-                }
-                a.contains("google") || a.contains("search") || a.contains("chrome") -> {
-                    intent.data = android.net.Uri.parse("https://www.google.com/search?q=" + android.net.Uri.encode(q))
-                    intent.setPackage("com.google.android.googlequicksearchbox")
-                }
-                a.contains("maps") || a.contains("map") -> {
-                    intent.data = android.net.Uri.parse("geo:0,0?q=" + android.net.Uri.encode(q))
-                    intent.setPackage("com.google.android.apps.maps")
-                }
-                a.contains("whatsapp") -> {
-                    intent.data = android.net.Uri.parse("https://wa.me/?text=" + android.net.Uri.encode(q))
-                    intent.setPackage("com.whatsapp")
-                }
-                a.contains("telegram") -> {
-                    intent.data = android.net.Uri.parse("https://t.me/s/" + android.net.Uri.encode(q))
-                    intent.setPackage("org.telegram.messenger")
-                }
-                a.contains("instagram") || a.contains("insta") -> {
-                    intent.data = android.net.Uri.parse("https://www.instagram.com/explore/search/keyword/?q=" + android.net.Uri.encode(q))
-                    intent.setPackage("com.instagram.android")
-                }
-                a.contains("gmail") || a.contains("mail") -> {
-                    intent.data = android.net.Uri.parse("https://mail.google.com/mail/u/0/#search/" + android.net.Uri.encode(q))
-                    intent.setPackage("com.google.android.gm")
-                }
-                else -> {
-                    intent.data = android.net.Uri.parse("https://www.google.com/search?q=" + android.net.Uri.encode(a + " " + q))
-                }
-            }
-            try {
-                context.startActivity(intent)
-            } catch (e1: Exception) {
-                // setPackage wala app nahi mila to bina package ke retry (browser/fallback)
-                intent.setPackage(null)
-                context.startActivity(intent)
-            }
-            return true
-        } catch (e: Exception) {
-            android.util.Log.e("VenomBridge", "searchInApp failed", e)
-            return false
-        }
     }
 
     @JavascriptInterface
@@ -333,145 +117,27 @@ class AndroidBridge(private val context: Context, private val webView: WebView) 
     fun openApp(appNameOrPackage: String): Boolean {
         try {
             val pm = context.packageManager
-            val query = appNameOrPackage.lowercase().replace("\\s+".toRegex(), "")
-
-            // 1) Pehle known-app package map (Instagram, WhatsApp, YouTube, ...)
-            val known = mapOf(
-                "instagram" to "com.instagram.android",
-                "insta" to "com.instagram.android",
-                "whatsapp" to "com.whatsapp",
-                "wa" to "com.whatsapp",
-                "youtube" to "com.google.android.youtube",
-                "yt" to "com.google.android.youtube",
-                "telegram" to "org.telegram.messenger",
-                "phone" to "com.android.dialer",
-                "call" to "com.android.dialer",
-                "messages" to "com.google.android.apps.messaging",
-                "sms" to "com.google.android.apps.messaging",
-                "chrome" to "com.android.chrome",
-                "browser" to "com.android.chrome",
-                "gmail" to "com.google.android.gm",
-                "maps" to "com.google.android.apps.maps",
-                "google maps" to "com.google.android.apps.maps",
-                "camera" to "com.android.camera",
-                "gallery" to "com.google.android.apps.photos",
-                "photos" to "com.google.android.apps.photos",
-                "spotify" to "com.spotify.music",
-                "facebook" to "com.facebook.katana",
-                "messenger" to "com.facebook.orca",
-                "snapchat" to "com.snapchat.android",
-                "twitter" to "com.twitter.android",
-                "x " to "com.twitter.android",
-                "settings" to "com.android.settings",
-                "file manager" to "com.android.documentsui",
-                "calculator" to "com.android.calculator2",
-                "clock" to "com.android.deskclock",
-                "calendar" to "com.google.android.calendar",
-                "play store" to "com.android.vending",
-                "netflix" to "com.netflix.mediaclient",
-                "amazon" to "com.amazon.mShop.android.shopping",
-                "phonepe" to "com.phonepe.app",
-                "gpay" to "com.google.android.apps.nbu.paisa.user",
-                "paytm" to "net.one97.paytm",
-                "hotstar" to "com.mobile.hotstar",
-                "prime video" to "com.amazon.avod.thirdpartyclient"
-            )
-
-            // normalized multiword keys
-            val knownNormalized = known.entries.associate { (k, v) -> k.replace("\\s+".toRegex(), "") to v }
-            var packageName = knownNormalized[query]
-            if (packageName == null) {
-                // partial prefix match: "insta" -> instagram package
-                packageName = knownNormalized.entries.firstOrNull { query.startsWith(it.key) }?.value
-            }
-
-            var launchIntent: android.content.Intent? = null
-            if (packageName != null) {
-                launchIntent = pm.getLaunchIntentForPackage(packageName)
-            }
-            if (launchIntent == null && packageName == null) {
-                launchIntent = pm.getLaunchIntentForPackage(appNameOrPackage)
-            }
+            var launchIntent = pm.getLaunchIntentForPackage(appNameOrPackage)
             if (launchIntent == null) {
-                // 2) Installed apps by label (contains match, exact-first)
+                // Try searching installed apps by label
                 val installed = pm.getInstalledApplications(0)
-                var exact: String? = null
                 for (app in installed) {
-                    val label = pm.getApplicationLabel(app).toString().lowercase().replace("\\s+".toRegex(), "")
-                    if (label == query) { exact = app.packageName; break }
-                }
-                val pkg = exact ?: run {
-                    var first: String? = null
-                    for (app in installed) {
-                        val label = pm.getApplicationLabel(app).toString().lowercase().replace("\\s+".toRegex(), "")
-                        if (label.contains(query)) { first = app.packageName; break }
+                    val label = pm.getApplicationLabel(app).toString().lowercase()
+                    if (label.contains(appNameOrPackage.lowercase())) {
+                        launchIntent = pm.getLaunchIntentForPackage(app.packageName)
+                        if (launchIntent != null) break
                     }
-                    first
                 }
-                if (pkg != null) launchIntent = pm.getLaunchIntentForPackage(pkg)
             }
             if (launchIntent != null) {
                 launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 context.startActivity(launchIntent)
                 return true
             }
-            // App installed nahi — Play Store page kholo taaki install kar sake
-            try {
-                val market = Intent(Intent.ACTION_VIEW).apply {
-                    data = android.net.Uri.parse("market://details?id=" + appNameOrPackage)
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
-                context.startActivity(market)
-                Log.w(TAG, "App not installed, opening Play Store: $appNameOrPackage")
-                return true
-            } catch (e2: Exception) {
-                Log.w(TAG, "Play Store fallback failed for $appNameOrPackage")
-            }
         } catch (e: Exception) {
             Log.e(TAG, "Error opening app $appNameOrPackage", e)
         }
         return false
-    }
-
-    /** Native runtime permission request — WebView me getUserMedia nahi hota,
-     *  isliye permissions yahan Android ke system dialog se request hote hain. */
-    @JavascriptInterface
-    fun requestPermission(kind: String): Boolean {
-        return try {
-            val permission = when (kind.lowercase()) {
-                "mic", "microphone", "audio", "record" -> Manifest.permission.RECORD_AUDIO
-                "location", "gps", "fine" -> Manifest.permission.ACCESS_FINE_LOCATION
-                "camera" -> Manifest.permission.CAMERA
-                "contacts", "contact" -> Manifest.permission.READ_CONTACTS
-                "phone", "call" -> Manifest.permission.CALL_PHONE
-                "notifications", "notification" -> Manifest.permission.POST_NOTIFICATIONS
-                else -> return false
-            }
-            val activity = context as? Activity
-            if (activity != null) {
-                ActivityCompat.requestPermissions(activity, arrayOf(permission), 5001)
-                true
-            } else false
-        } catch (e: Exception) {
-            Log.e(TAG, "requestPermission failed", e)
-            false
-        }
-    }
-
-    @JavascriptInterface
-    fun hasPermission(kind: String): Boolean {
-        return try {
-            val permission = when (kind.lowercase()) {
-                "mic", "microphone", "audio", "record" -> Manifest.permission.RECORD_AUDIO
-                "location", "gps", "fine" -> Manifest.permission.ACCESS_FINE_LOCATION
-                "camera" -> Manifest.permission.CAMERA
-                "contacts", "contact" -> Manifest.permission.READ_CONTACTS
-                "phone", "call" -> Manifest.permission.CALL_PHONE
-                "notifications", "notification" -> Manifest.permission.POST_NOTIFICATIONS
-                else -> return false
-            }
-            context.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
-        } catch (e: Exception) { false }
     }
 
     @JavascriptInterface
@@ -495,11 +161,6 @@ class AndroidBridge(private val context: Context, private val webView: WebView) 
     @JavascriptInterface
     fun replyNotification(id: String, message: String): Boolean {
         return NotificationListener.replyNotification(id, message)
-    }
-
-    @JavascriptInterface
-    fun deleteNotification(id: String): Boolean {
-        return NotificationListener.deleteNotification(id)
     }
 
     @JavascriptInterface
@@ -546,6 +207,12 @@ class AndroidBridge(private val context: Context, private val webView: WebView) 
             action = if (enabled) "ENABLE_CLAP_WAKE" else "DISABLE_CLAP_WAKE"
         }
         context.startService(serviceIntent)
+    }
+
+    @JavascriptInterface
+    fun setLiveSessionActive(active: Boolean) {
+        val newState = if (active) MicState.LIVE_SESSION_ACTIVE else MicState.WAKE_LISTENING
+        MicManager.transitionTo(newState)
     }
 
     @JavascriptInterface
@@ -620,11 +287,6 @@ class AndroidBridge(private val context: Context, private val webView: WebView) 
     @JavascriptInterface
     fun clickAccessibilityNode(targetText: String): Boolean {
         return VenomAccessibilityService.clickByText(targetText)
-    }
-
-    @JavascriptInterface
-    fun scrollAccessibility(direction: String): Boolean {
-        return VenomAccessibilityService.scrollBy(direction)
     }
 
     @JavascriptInterface

@@ -1,8 +1,9 @@
+@import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&display=swap');
 @import "tailwindcss";
 
 @theme {
-  --font-sans: "Rajdhani", "Segoe UI", system-ui, -apple-system, sans-serif;
-  --font-mono: "Share Tech Mono", "Consolas", ui-monospace, monospace;
+  --font-sans: "Rajdhani", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Share Tech Mono", ui-monospace, SFMono-Regular, monospace;
 }
 
 html, body, #root {

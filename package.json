@@ -1,7 +1,7 @@
 {
   "name": "react-example",
   "private": true,
-  "version": "1.2.6",
+  "version": "0.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite --port=3000 --host=0.0.0.0",
@@ -36,8 +36,6 @@
     "@types/node": "^22.14.0",
     "@types/pngjs": "^6.0.5",
     "@types/qrcode": "^1.5.6",
-    "@types/react": "^19.2.18",
-    "@types/react-dom": "^19.2.4",
     "autoprefixer": "^10.4.21",
     "pngjs": "^7.0.0",
     "tailwindcss": "^4.1.14",

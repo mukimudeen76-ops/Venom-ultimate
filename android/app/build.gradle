@@ -1,7 +1,6 @@
 plugins {
     id 'com.android.application'
     id 'org.jetbrains.kotlin.android'
-    id 'com.google.gms.google-services'
     id 'com.google.devtools.ksp'
 }
 
@@ -9,54 +8,32 @@ android {
     namespace 'com.novax.venom'
     compileSdk 34
 
-    // Version comes from CI (-PversionName / -PversionCode), with local defaults.
-    def vCodeProp = project.findProperty('versionCode')?.toString()
-    def vNameProp = project.findProperty('versionName')?.toString()
-    def vCode = (vCodeProp != null && vCodeProp.isInteger()) ? vCodeProp.toInteger() : 1
-    def vName = (vNameProp != null && !vNameProp.isBlank()) ? vNameProp : "1.0.0"
-
-    signingConfigs {
-        release {
-            // Secrets are injected by the CI workflow (keystore file + passwords).
-            def ksPath = System.getenv("VENOM_KEYSTORE_PATH")
-            if (ksPath != null && file(ksPath).exists()) {
-                storeFile file(ksPath)
-                storePassword System.getenv("VENOM_KEYSTORE_PASSWORD")
-                keyAlias System.getenv("VENOM_KEY_ALIAS")
-                keyPassword System.getenv("VENOM_KEY_PASSWORD")
-            }
-        }
-    }
-
     defaultConfig {
         applicationId "com.novax.venom"
         minSdk 26
         targetSdk 34
-        versionCode vCode
-        versionName vName
+        versionCode 1
+        versionName "1.0.0"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+    }
 
-        // Update endpoint: default = public manifest mirror that the PRIVATE repo
-        // auto-generates (release-mirror workflow). Owner can override to a
-        // Cloudflare Worker URL via -PupdateEndpoint="..." at build time.
-        def updateEndpoint = project.findProperty('updateEndpoint')?.toString()?.trim()
-        buildConfigField "String", "UPDATE_ENDPOINT",
-            "\"${updateEndpoint != null && updateEndpoint.length() > 0 ? updateEndpoint : "https://mukimudeen76-ops.github.io/VENOM-Website/venom-ultimate-update.json"}\""
+    signingConfigs {
+        release {
+            storeFile file('debug.keystore')
+            storePassword 'android'
+            keyAlias 'androiddebugkey'
+            keyPassword 'android'
+            v1SigningEnabled true
+            v2SigningEnabled true
+        }
     }
 
     buildTypes {
         release {
+            // signingConfig signingConfigs.release
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            def ksPath = System.getenv("VENOM_KEYSTORE_PATH")
-            if (ksPath != null && file(ksPath).exists()) {
-                signingConfig signingConfigs.release
-            } else {
-                // No keystore secret configured: fall back to debug signing so the
-                // build still produces an installable APK.
-                signingConfig signingConfigs.debug
-            }
         }
     }
 
@@ -71,21 +48,11 @@ android {
 
     buildFeatures {
         compose true
-        buildConfig true
     }
 
     composeOptions {
         kotlinCompilerExtensionVersion '1.5.10'
     }
-}
-
-googleServices {
-    // Prevents the google-services plugin from eagerly resolving/observing
-    // the compile classpath during its version-compatibility check, which
-    // triggers "Cannot mutate the dependencies of configuration
-    // ':app:releaseCompileClasspath' after the configuration was resolved"
-    // on Gradle 8.7 with the credentials/googleid libraries in this project.
-    disableVersionCheck = true
 }
 
 dependencies {
@@ -124,8 +91,10 @@ dependencies {
     implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation 'com.google.android.material:material:1.11.0'
     implementation 'androidx.security:security-crypto:1.1.0-alpha06'
+}
 
-    // WebViewAssetLoader: serves the bundled web app over https://appassets.androidplatform.net
-    // (required for ES-module scripts + IndexedDB inside the WebView)
-    implementation 'androidx.webkit:webkit:1.9.0'
+apply plugin: 'com.google.gms.google-services'
+
+googleServices {
+    disableVersionCheck = true
 }
