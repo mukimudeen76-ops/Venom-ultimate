@@ -82,6 +82,21 @@ class VenomAccessibilityService : AccessibilityService() {
             return null
         }
 
+        fun scrollBy(direction: String): Boolean {
+            val service = instance ?: return false
+            val root = service.rootInActiveWindow ?: return false
+            return try {
+                if (direction.equals("UP", ignoreCase = true)) {
+                    root.performAction(AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD)
+                } else {
+                    root.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "scrollBy error", e)
+                false
+            }
+        }
+
         fun clickByText(targetText: String): Boolean {
             val root = instance?.rootInActiveWindow ?: return false
             val nodes = root.findAccessibilityNodeInfosByText(targetText)

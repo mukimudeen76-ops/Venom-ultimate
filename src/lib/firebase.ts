@@ -2,29 +2,31 @@ import { initializeApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider } from "firebase/auth";
 import { getFirestore, doc, getDocFromServer } from "firebase/firestore";
 // @ts-ignore
-import config from "../../firebase-applet-config.json";
 
 const env = (import.meta as any).env || {};
 
 const defaultApiKey = "AIzaSyDummyKeyForDevelopment1234567";
 
-const rawApiKey = (env.VITE_FIREBASE_API_KEY || config.apiKey || "").trim();
-const rawAuthDomain = (env.VITE_FIREBASE_AUTH_DOMAIN || config.authDomain || "").trim();
-const rawProjectId = (env.VITE_FIREBASE_PROJECT_ID || config.projectId || "").trim();
+const rawApiKey = (env.VITE_FIREBASE_API_KEY || "").trim();
+const rawAuthDomain = (env.VITE_FIREBASE_AUTH_DOMAIN || "").trim();
+const rawProjectId = (env.VITE_FIREBASE_PROJECT_ID || "").trim();
+
+// Firebase optional hai — VITE_FIREBASE_* env vars configure karein to hi active
+export const firebaseEnabled = Boolean(rawApiKey && rawProjectId);
 
 const firebaseConfig = {
   apiKey: rawApiKey || defaultApiKey,
   authDomain: rawAuthDomain || "venom-app.firebaseapp.com",
   projectId: rawProjectId || "venom-app",
-  storageBucket: env.VITE_FIREBASE_STORAGE_BUCKET || config.storageBucket || "venom-app.appspot.com",
-  messagingSenderId: env.VITE_FIREBASE_MESSAGING_SENDER_ID || config.messagingSenderId || "100000000000",
-  appId: env.VITE_FIREBASE_APP_ID || config.appId || "1:100000000000:web:abcdef123456"
+  storageBucket: env.VITE_FIREBASE_STORAGE_BUCKET || "venom-app.appspot.com",
+  messagingSenderId: env.VITE_FIREBASE_MESSAGING_SENDER_ID || "100000000000",
+  appId: env.VITE_FIREBASE_APP_ID || "1:100000000000:web:abcdef123456"
 };
 
-export const app = initializeApp(firebaseConfig);
-export const auth = getAuth(app);
-export const db = getFirestore(app, config.firestoreDatabaseId || "(default)");
-export const googleProvider = new GoogleAuthProvider();
+export const app: any = firebaseEnabled ? initializeApp(firebaseConfig) : null;
+export const auth: any = firebaseEnabled && app ? getAuth(app) : null;
+export const db: any = firebaseEnabled && app ? getFirestore(app) : null;
+export const googleProvider: any = firebaseEnabled && app ? new GoogleAuthProvider() : null;
 
 export enum OperationType {
   CREATE = 'create',

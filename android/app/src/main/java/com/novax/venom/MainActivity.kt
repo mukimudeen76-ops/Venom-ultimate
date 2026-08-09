@@ -1,107 +1,262 @@
 package com.novax.venom
 
 import android.Manifest
-import android.util.Log
+import android.annotation.SuppressLint
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
-import androidx.activity.ComponentActivity
-import androidx.activity.compose.setContent
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import android.util.Log
+import android.view.View
+import android.view.WindowManager
+import android.webkit.PermissionRequest
+import android.webkit.WebChromeClient
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
+import android.webkit.WebSettings
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import android.widget.Button
+import android.widget.LinearLayout
+import android.widget.TextView
+import android.graphics.Typeface
+import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import com.novax.venom.auth.AuthManager
-import com.novax.venom.memory.CloudMemorySync
-import com.novax.venom.memory.VenomDatabase
-import com.novax.venom.ui.SettingsScreen
-import kotlinx.coroutines.launch
+import androidx.webkit.WebViewAssetLoader
+import androidx.webkit.WebViewClientCompat
 
-class MainActivity : ComponentActivity() {
+/**
+ * VENOM — native Android shell.
+ * Hosts the full Venom assistant web app (bundled in assets/www) inside a WebView,
+ * wires the native AndroidBridge (device control + secure Gemini key storage) and
+ * starts the in-app updater (checks GitHub Releases, downloads & installs in place).
+ */
+class MainActivity : AppCompatActivity() {
     companion object {
         private const val PERMISSIONS_REQUEST_CODE = 101
+
+        // Live reference used by background services (wake-word, clap) to push
+        // events into the loaded WebView (e.g. "venomWakeWord").
+        @Volatile
+        var activeWebView: WebView? = null
+
+        fun pushEvent(name: String, payload: String) {
+            val wv = activeWebView ?: return
+            val script =
+                "try{window.dispatchEvent(new CustomEvent('$name',{detail:($payload)}));}catch(e){}"
+            wv.post { wv.evaluateJavascript(script, null) }
+        }
     }
 
-    private lateinit var authManager: AuthManager
-    private lateinit var settingsManager: SettingsManager
-    private lateinit var cloudMemorySync: CloudMemorySync
+    private lateinit var webView: WebView
+    @Volatile private var pageLoaded = false
+    private var reloadedOnce = false
+    private lateinit var updateManager: UpdateManager
+    private lateinit var screenCaptureManager: ScreenCaptureManager
+    private var triggeredByWake = false
 
+    private val mediaProjectionLauncher =
+        registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()) { result ->
+            if (result.resultCode == RESULT_OK && result.data != null) {
+                screenCaptureManager.startCapture(result.resultCode, result.data!!)
+            } else {
+                // User denied the screen-capture dialog — tell the web layer
+                MainActivity.pushEvent(
+                    "venomScreenFrameError",
+                    """{"error":"screen-capture-denied"}"""
+                )
+            }
+        }
+
+    /** Called from AndroidBridge.startScreenCapture() — shows the system consent dialog. */
+    fun requestScreenCapture() {
+        try {
+            val mpm = getSystemService(MEDIA_PROJECTION_SERVICE) as android.media.projection.MediaProjectionManager
+            mediaProjectionLauncher.launch(mpm.createScreenCaptureIntent())
+        } catch (e: Exception) {
+            MainActivity.pushEvent(
+                "venomScreenFrameError",
+                """{"error":"${e.message?.replace("\"", "'") ?: "unknown"}"}"""
+            )
+        }
+    }
+
+    @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        
-        authManager = AuthManager(this)
-        settingsManager = SettingsManager(this)
-        cloudMemorySync = CloudMemorySync(VenomDatabase.getDatabase(this))
-        
+
+        window.apply {
+            clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS)
+            addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS)
+            statusBarColor = Color.parseColor("#050505")
+            navigationBarColor = Color.parseColor("#050505")
+        }
+
+        triggeredByWake = intent?.getBooleanExtra("TRIGGER_LIVE_SESSION", false) == true
+
+        webView = WebView(this)
+        setContentView(webView)
+        MainActivity.activeWebView = webView
+        setupWebView()
+
+        // Permissions first: mic, location, camera, contacts, call, notifications
+        // are requested right when the app opens so the assistant can hear you.
         requestPermissionsIfNeeded()
         startForegroundService()
 
-        setContent {
-            VenomTheme {
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = Color(0xFF050505)
-                ) {
-                    var isLoggedIn by remember { mutableStateOf(authManager.currentUser != null) }
-                    
-                    if (isLoggedIn) {
-                        var showSettings by remember { mutableStateOf(settingsManager.getApiKey().isNullOrEmpty()) }
-                        val coroutineScope = rememberCoroutineScope()
-                        
-                        // Sync settings down from cloud on login
-                        LaunchedEffect(Unit) {
-                            authManager.currentUser?.uid?.let { uid ->
-                                val cloudApiKey = cloudMemorySync.getApiKey(uid)
-                                if (!cloudApiKey.isNullOrEmpty()) {
-                                    settingsManager.setApiKey(cloudApiKey)
-                                    showSettings = false
-                                }
-                                // Also sync facts down
-                                cloudMemorySync.syncFactsDown(uid)
-                            }
-                        }
-                        
-                        if (showSettings) {
-                            SettingsScreen(
-                                settingsManager = settingsManager,
-                                onClose = { showSettings = false },
-                                onApiKeySaved = { apiKey -> 
-                                    authManager.currentUser?.uid?.let { uid ->
-                                        coroutineScope.launch {
-                                            cloudMemorySync.saveApiKey(uid, apiKey)
-                                        }
-                                    }
-                                }
-                            )
-                        } else {
-                            VenomOrbScreen(
-                                onSignOut = {
-                                    coroutineScope.launch {
-                                        authManager.signOut()
-                                        isLoggedIn = false
-                                    }
-                                },
-                                onSettings = { showSettings = true }
-                            )
-                        }
-                    } else {
-                        LoginScreen(
-                            authManager = authManager,
-                            onLoginSuccess = { isLoggedIn = true }
+        // Keep the always-on wake mic alive: ask to ignore battery optimizations
+        // (once), so the OS/Doze doesn't kill the background listening service.
+        requestIgnoreBatteryOptimizations()
+
+        // Load the bundled assistant UI from local assets (offline-first, no server needed)
+        webView.loadUrl("https://appassets.androidplatform.net/assets/www/index.html")
+
+        // BLACK-SCREEN WATCHDOG: agar 12s me page load na ho (JS error / asset 404)
+        // to native 'Retry' screen dikhao — black screen kabhi nahi.
+        webView.postDelayed({
+            if (!pageLoaded && !isFinishing) {
+                showNativeRetry("Page load timeout (JS/asset error).")
+            }
+        }, 12000)
+
+        updateManager = UpdateManager(this, webView)
+        updateManager.checkForUpdate()
+        updateManager.startPeriodicCheck()
+    }
+
+    /** Ask the user (once) to exempt VENOM from battery optimization so the
+     *  always-on wake mic keeps running 24/7 like Google Assistant. */
+    private fun requestIgnoreBatteryOptimizations() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
+        val prefs = getSharedPreferences("venom_prefs", MODE_PRIVATE)
+        if (prefs.getBoolean("battery_exempt_asked", false)) return
+        prefs.edit().putBoolean("battery_exempt_asked", true).apply()
+        try {
+            val pm = getSystemService(POWER_SERVICE) as android.os.PowerManager
+            if (pm.isIgnoringBatteryOptimizations(packageName)) return
+            val intent = Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                data = android.net.Uri.parse("package:$packageName")
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            startActivity(intent)
+        } catch (e: Exception) {
+            try {
+                val intent = Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                startActivity(intent)
+            } catch (e2: Exception) {
+                // ignore
+            }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Re-check for updates every time the app comes back to the foreground,
+        // so a freshly published release shows the update banner right away.
+        try {
+            updateManager?.checkForUpdate()
+        } catch (e: Exception) {
+            // ignore
+        }
+    }
+
+    @SuppressLint("SetJavaScriptEnabled")
+    private fun setupWebView() {
+        val assetLoader = WebViewAssetLoader.Builder()
+            .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(this))
+            .build()
+
+        webView.settings.apply {
+            javaScriptEnabled = true
+            domStorageEnabled = true
+            databaseEnabled = true
+            allowFileAccess = true
+            allowContentAccess = true
+            mediaPlaybackRequiresUserGesture = false
+            mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+            javaScriptCanOpenWindowsAutomatically = true
+            // SCREEN FIT: sab mobile pe poori screen bhar ke fit — wide viewport +
+            // overview mode (zoom-out) + normal text zoom.
+            useWideViewPort = true
+            loadWithOverviewMode = true
+            textZoom = 100
+            setSupportZoom(false)
+        }
+        webView.setInitialScale(0)
+        webView.setBackgroundColor(Color.parseColor("#050505"))
+        webView.overScrollMode = View.OVER_SCROLL_NEVER
+
+        // Native device-control + secure key storage bridge (consumed by the web app)
+        val bridge = AndroidBridge(this, webView)
+        screenCaptureManager = ScreenCaptureManager(this, webView)
+        bridge.screenCaptureManager = screenCaptureManager
+        webView.addJavascriptInterface(bridge, "AndroidBridge")
+
+        // Native speech-to-text + text-to-speech (Android WebView lacks Web Speech API)
+        webView.addJavascriptInterface(VenomSpeech(this, webView), "VenomSpeech")
+
+        webView.webViewClient = object : WebViewClientCompat() {
+            override fun shouldInterceptRequest(
+                view: WebView,
+                request: WebResourceRequest
+            ): WebResourceResponse? = assetLoader.shouldInterceptRequest(request.url)
+
+
+
+
+
+            override fun onPageFinished(view: WebView?, url: String?) {
+                pageLoaded = true
+                super.onPageFinished(view, url)
+                // If the app was launched by the wake word / clap, tell the UI to
+                // start a listening session right away.
+                if (triggeredByWake) {
+                    triggeredByWake = false
+                    webView.postDelayed({
+                        MainActivity.pushEvent(
+                            "venomWakeWord",
+                            """{"source":"launch"}"""
                         )
-                    }
+                    }, 1200)
                 }
             }
         }
+
+        webView.webChromeClient = object : WebChromeClient() {
+            override fun onPermissionRequest(request: PermissionRequest?) {
+                request?.let { it.grant(it.resources) }
+            }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent?.getBooleanExtra("TRIGGER_LIVE_SESSION", false) == true) {
+            webView.postDelayed({
+                MainActivity.pushEvent("venomWakeWord", """{"source":"wake"}""")
+            }, 600)
+        }
+    }
+
+    override fun onBackPressed() {
+        if (webView.canGoBack()) webView.goBack() else super.onBackPressed()
+    }
+
+    override fun onDestroy() {
+        if (MainActivity.activeWebView === webView) {
+            MainActivity.activeWebView = null
+        }
+        screenCaptureManager.stopCapture()
+        updateManager.cancel()
+        // WAKE-ONCE FIX: app band karte hi mic wapas always-on wake pe le aao,
+        // taaki "wake venom" DOBARA se kaam kare (session ka mic stuck na rahe).
+        if (MicManager.wakeEnabled) {
+            MicManager.transitionTo(MicState.WAKE_LISTENING)
+        }
+        super.onDestroy()
     }
 
     private fun requestPermissionsIfNeeded() {
@@ -135,128 +290,76 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    override fun onNewIntent(intent: Intent?) {
-        super.onNewIntent(intent)
-        setIntent(intent)
-        intent?.let {
-            if (it.getBooleanExtra("TRIGGER_LIVE_SESSION", false)) {
-                Log.d("MainActivity", "Live session trigger received from wake-word service")
-            }
-        }
-    }
-}
-
-@Composable
-fun VenomTheme(content: @Composable () -> Unit) {
-    MaterialTheme(
-        colorScheme = darkColorScheme(
-            background = Color(0xFF050505),
-            surface = Color(0xFF0A0A0A),
-            primary = Color(0xFF9D4EDD), // Neon Violet
-            secondary = Color(0xFF00E5FF) // Cyan
-        ),
-        content = content
-    )
-}
-
-@Composable
-fun VenomOrbScreen(onSignOut: () -> Unit = {}, onSettings: () -> Unit = {}) {
-    Column(
-        modifier = Modifier.fillMaxSize().padding(16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Button(onClick = onSettings) {
-                Text("Settings & Memory")
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode != 5001 && requestCode != PERMISSIONS_REQUEST_CODE) return
+        try {
+            val granted = grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED
+            val kind = when (permissions.firstOrNull()) {
+                Manifest.permission.RECORD_AUDIO -> "mic"
+                Manifest.permission.ACCESS_FINE_LOCATION -> "location"
+                Manifest.permission.CAMERA -> "camera"
+                Manifest.permission.READ_CONTACTS -> "contacts"
+                Manifest.permission.POST_NOTIFICATIONS -> "notifications"
+                else -> ""
             }
-            Button(onClick = onSignOut) {
-                Text("Sign Out")
+            if (kind.isNotEmpty()) {
+                MainActivity.pushEvent("venomPermissionResult", """{"kind":"$kind","granted":$granted}""")
             }
+        } catch (e: Exception) {
+            Log.e("VenomMain", "onRequestPermissionsResult error", e)
         }
-        
-        Spacer(modifier = Modifier.weight(1f))
-        
-        // Placeholder for the Animated Orb
-        Box(
-            modifier = Modifier
-                .size(200.dp)
-                .background(Color(0xFF1A1A1A), shape = androidx.compose.foundation.shape.CircleShape),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = "VENOM",
-                color = Color(0xFF9D4EDD),
-                fontSize = 24.sp,
-                fontWeight = FontWeight.Bold
-            )
-        }
-        
-        Spacer(modifier = Modifier.height(32.dp))
-        
-        Text(
-            text = "Listening for 'Venom'...",
-            color = Color.Gray,
-            fontSize = 16.sp
-        )
-        
-        Spacer(modifier = Modifier.weight(1f))
     }
-}
 
-@Composable
-fun LoginScreen(authManager: AuthManager, onLoginSuccess: () -> Unit) {
-    val coroutineScope = rememberCoroutineScope()
-    var isLoggingIn by remember { mutableStateOf(false) }
-    
-    // Automatically trigger sign-in when the screen is shown
-    LaunchedEffect(Unit) {
-        if (!isLoggingIn) {
-            isLoggingIn = true
-            val success = authManager.signInWithGoogle()
-            if (success) {
-                onLoginSuccess()
-            } else {
-                isLoggingIn = false
-            }
-        }
-    }
-    
-    Column(
-        modifier = Modifier.fillMaxSize(),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        Text(
-            text = "Welcome to VENOM",
-            color = Color(0xFF9D4EDD),
-            fontSize = 32.sp,
-            fontWeight = FontWeight.Bold
-        )
-        
-        Spacer(modifier = Modifier.height(48.dp))
-        
-        Button(
-            onClick = {
-                isLoggingIn = true
-                coroutineScope.launch {
-                    val success = authManager.signInWithGoogle()
-                    if (success) {
-                        onLoginSuccess()
-                    } else {
-                        isLoggingIn = false
-                    }
+
+    /** BLACK-SCREEN FIX: native retry screen (programmatic — no XML needed). */
+    private fun showNativeRetry(reason: String) {
+        try {
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                val container = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    gravity = android.view.Gravity.CENTER
+                    setBackgroundColor(Color.parseColor("#02080b"))
                 }
-            },
-            enabled = !isLoggingIn
-        ) {
-            if (isLoggingIn) {
-                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-            } else {
-                Text("Sign in with Google")
+                val title = TextView(this).apply {
+                    text = "🕷️ VENOM"
+                    setTextColor(Color.parseColor("#7dd3fc"))
+                    textSize = 26f
+                    typeface = Typeface.DEFAULT_BOLD
+                    gravity = android.view.Gravity.CENTER
+                }
+                val msg = TextView(this).apply {
+                    text = "App load nahi ho paya.\n$reason"
+                    setTextColor(Color.parseColor("#94a3b8"))
+                    textSize = 14f
+                    gravity = android.view.Gravity.CENTER
+                    setPadding(0, 16, 0, 24)
+                }
+                val btn = Button(this).apply {
+                    text = "🔄 Retry"
+                    setTextColor(Color.WHITE)
+                    setBackgroundColor(Color.parseColor("#8b5cf6"))
+                }
+                btn.setOnClickListener {
+                    setContentView(webView)
+                    pageLoaded = false
+                    webView.reload()
+                }
+                container.addView(title, LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+                container.addView(msg, LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+                container.addView(btn, LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+                setContentView(container)
             }
+        } catch (e: Exception) {
+            Log.e("MainActivity", "showNativeRetry error", e)
         }
     }
 }

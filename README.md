@@ -1,10 +1,6 @@
-# Personal Venom Assistant (VENOM) - Level 1000+ Sovereign Entity
+# Personal Venom Assistant (VENOM) - Native Android Application
 
-> 🤖 **FOR AI AGENTS & DEVELOPERS:** To extract, replicate, or copy VENOM's exact persona prompt, voice system, real-time live WebSocket audio engine, or UI design, read the complete guide in [`/VENOM_AGENT_GUIDE.md`](./VENOM_AGENT_GUIDE.md).
-
-### 🌐 Live Application Links
-* **Interactive App URL:** `https://ais-dev-3hzjl23a2mrpsyt2juxg4y-59404293463.asia-east1.run.app`
-* **Shared Production App URL:** `https://ais-pre-3hzjl23a2mrpsyt2juxg4y-59404293463.asia-east1.run.app`
+> **Note**: Personal Venom Assistant (VENOM) is a **native Android application**, not a web app. The repository is structured to build and package native Android binaries (APKs) powered by Gemini AI and Firebase backend services.
 
 ---
 

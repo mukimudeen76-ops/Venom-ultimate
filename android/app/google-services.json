@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "169366370796",
+    "project_id": "reverberant-stock-34dh4",
+    "storage_bucket": "reverberant-stock-34dh4.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:169366370796:android:5a1db2cb340d683f56e8c9",
+        "android_client_info": {
+          "package_name": "com.novax.venom"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "169366370796-3ao327ifkr54tfcekd2jnsepuedjftj2.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.novax.venom",
+            "certificate_hash": "5d2e9046e8015b7ad88ed6c4217eb987dad869f6"
+          }
+        },
+        {
+          "client_id": "169366370796-ebqd2pasjgs0eigvmq0h5ndl14r2tes7.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC9yKtKGCu33NHT9beQ8Mx8vQrw9Kq3ubc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "169366370796-ebqd2pasjgs0eigvmq0h5ndl14r2tes7.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
